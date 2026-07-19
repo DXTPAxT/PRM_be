@@ -37,9 +37,12 @@ async function bootstrap() {
     .addBearerAuth()
     .addTag('auth', 'Đăng ký, đăng nhập, refresh token')
     .addTag('users', 'Profile và địa chỉ người dùng')
-    .addTag('products', 'Sản phẩm — M2 implement')
-    .addTag('categories', 'Danh mục — M2 implement')
-    .addTag('reviews', 'Đánh giá sản phẩm — M2 implement')
+    .addTag(
+      'products',
+      'Sản phẩm: danh sách, lọc, tìm kiếm, chi tiết, CRUD admin',
+    )
+    .addTag('categories', 'Danh mục sản phẩm (cây 2 cấp)')
+    .addTag('reviews', 'Đánh giá sản phẩm')
     .addTag('wishlist', 'Danh sách yêu thích — M1 implement')
     .addTag('cart', 'Giỏ hàng — M3 implement')
     .addTag('orders', 'Đơn hàng — M3 implement')

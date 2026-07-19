@@ -18,20 +18,20 @@ const baseRow = {
 
 describe('product.mapper', () => {
   it('đổi basePrice từ Decimal sang number', () => {
-    const result = toProductListItem(baseRow as never);
+    const result = toProductListItem(baseRow);
 
     expect(result.basePrice).toBe(250000);
     expect(typeof result.basePrice).toBe('number');
   });
 
   it('lấy thumbnailUrl từ ảnh có sortOrder nhỏ nhất', () => {
-    const result = toProductListItem(baseRow as never);
+    const result = toProductListItem(baseRow);
 
     expect(result.thumbnailUrl).toBe('https://x/1.jpg');
   });
 
   it('không có ảnh thì thumbnailUrl là null', () => {
-    const result = toProductListItem({ ...baseRow, images: [] } as never);
+    const result = toProductListItem({ ...baseRow, images: [] });
 
     expect(result.thumbnailUrl).toBeNull();
   });
@@ -40,14 +40,14 @@ describe('product.mapper', () => {
     const result = toProductListItem({
       ...baseRow,
       reviews: [{ rating: 4 }, { rating: 5 }, { rating: 5 }],
-    } as never);
+    });
 
     expect(result.avgRating).toBe(4.7);
     expect(result.reviewCount).toBe(3);
   });
 
   it('chưa có review thì avgRating và reviewCount đều là 0', () => {
-    const result = toProductListItem({ ...baseRow, reviews: [] } as never);
+    const result = toProductListItem({ ...baseRow, reviews: [] });
 
     expect(result.avgRating).toBe(0);
     expect(result.reviewCount).toBe(0);
@@ -67,7 +67,7 @@ describe('product.mapper', () => {
           sku: 'AT-M-DEN',
         },
       ],
-    } as never);
+    });
 
     expect(result.variants[0].price).toBe(260000);
     expect(result.description).toBe('Cotton 100%');

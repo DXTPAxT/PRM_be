@@ -19,7 +19,9 @@ export enum ProductSort {
 }
 
 export class QueryProductsDto {
-  @ApiPropertyOptional({ description: 'Lọc theo danh mục (gồm cả danh mục con)' })
+  @ApiPropertyOptional({
+    description: 'Lọc theo danh mục (gồm cả danh mục con)',
+  })
   @IsOptional()
   @IsUUID()
   categoryId?: string;

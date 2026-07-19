@@ -23,7 +23,10 @@ describe('ProductsService.findAll', () => {
   });
 
   function whereOf(): Record<string, unknown> {
-    return productFindMany.mock.calls[0][0].where as Record<string, unknown>;
+    const calls = productFindMany.mock.calls as unknown as Array<
+      [{ where: Record<string, unknown> }]
+    >;
+    return calls[0][0].where;
   }
 
   it('mặc định chỉ trả sản phẩm đang bán', async () => {
@@ -84,7 +87,10 @@ describe('ProductsService.findAll', () => {
     for (const [sort, expected] of cases) {
       productFindMany.mockClear();
       await service.findAll(sort ? { sort } : {});
-      expect(productFindMany.mock.calls[0][0].orderBy).toEqual(expected);
+      const calls = productFindMany.mock.calls as unknown as Array<
+        [{ orderBy: unknown }]
+      >;
+      expect(calls[0][0].orderBy).toEqual(expected);
     }
   });
 
@@ -93,7 +99,10 @@ describe('ProductsService.findAll', () => {
 
     const result = await service.findAll({ page: 2, limit: 20 });
 
-    expect(productFindMany.mock.calls[0][0]).toMatchObject({
+    const calls = productFindMany.mock.calls as unknown as Array<
+      [Record<string, unknown>]
+    >;
+    expect(calls[0][0]).toMatchObject({
       skip: 20,
       take: 20,
     });
@@ -174,4 +183,3 @@ describe('ProductsService.findOne', () => {
     await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
   });
 });
-
