@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, ProductStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateProductDto } from './dto/create-product.dto';
 import { ProductSort, QueryProductsDto } from './dto/query-products.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 import {
   PRODUCT_DETAIL_SELECT,
   PRODUCT_LIST_SELECT,
@@ -113,7 +115,111 @@ export class ProductsService {
       throw new NotFoundException('Không tìm thấy sản phẩm.');
     }
 
-    return toProductDetail(row as never);
+    return toProductDetail(row);
+  }
+
+  async create(dto: CreateProductDto) {
+    const product = await this.prisma.product.create({
+      data: {
+        categoryId: dto.categoryId,
+        name: dto.name,
+        description: dto.description ?? null,
+        basePrice: dto.basePrice,
+        status: dto.status ?? ProductStatus.active,
+        images: dto.images?.length
+          ? {
+              createMany: {
+                data: dto.images.map((img, index) => ({
+                  url: img.url,
+                  sortOrder: img.sortOrder ?? index,
+                })),
+              },
+            }
+          : undefined,
+        variants: { createMany: { data: dto.variants } },
+      },
+      select: PRODUCT_DETAIL_SELECT,
+    });
+
+    return {
+      data: toProductDetail(product),
+      message: 'Tạo sản phẩm thành công.',
+    };
+  }
+
+  async update(id: string, dto: UpdateProductDto) {
+    await this.findOne(id); // ném NotFoundException nếu không tồn tại
+
+    const detail = await this.prisma.$transaction(async (tx) => {
+      await tx.product.update({
+        where: { id },
+        data: {
+          ...(dto.categoryId !== undefined
+            ? { categoryId: dto.categoryId }
+            : {}),
+          ...(dto.name !== undefined ? { name: dto.name } : {}),
+          ...(dto.description !== undefined
+            ? { description: dto.description }
+            : {}),
+          ...(dto.basePrice !== undefined ? { basePrice: dto.basePrice } : {}),
+          ...(dto.status !== undefined ? { status: dto.status } : {}),
+        },
+      });
+
+      // Ảnh replace-all được: ProductImage có onDelete Cascade, không bảng nào tham chiếu.
+      if (dto.images) {
+        await tx.productImage.deleteMany({ where: { productId: id } });
+        if (dto.images.length > 0) {
+          await tx.productImage.createMany({
+            data: dto.images.map((img, index) => ({
+              productId: id,
+              url: img.url,
+              sortOrder: img.sortOrder ?? index,
+            })),
+          });
+        }
+      }
+
+      // Variant PHẢI upsert. Xóa variant đang nằm trong CartItem/OrderItem sẽ lỗi FK.
+      if (dto.variants) {
+        for (const variant of dto.variants) {
+          await tx.productVariant.upsert({
+            where: {
+              productId_size_color: {
+                productId: id,
+                size: variant.size,
+                color: variant.color,
+              },
+            },
+            create: { productId: id, ...variant },
+            update: {
+              price: variant.price,
+              stockQty: variant.stockQty,
+              sku: variant.sku,
+            },
+          });
+        }
+      }
+
+      return tx.product.findUnique({
+        where: { id },
+        select: PRODUCT_DETAIL_SELECT,
+      });
+    });
+
+    return {
+      data: toProductDetail(detail as never),
+      message: 'Cập nhật sản phẩm thành công.',
+    };
+  }
+
+  /** Soft delete — xóa cứng sẽ vỡ FK từ OrderItem qua ProductVariant. */
+  async remove(id: string) {
+    await this.prisma.product.update({
+      where: { id },
+      data: { status: ProductStatus.inactive },
+    });
+
+    return { data: null, message: 'Đã ngừng bán sản phẩm.' };
   }
 }
-

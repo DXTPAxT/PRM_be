@@ -1,8 +1,23 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../common/decorators/public.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
 import { ReviewsService } from '../reviews/reviews.service';
+import { CreateProductDto } from './dto/create-product.dto';
 import { QueryProductsDto } from './dto/query-products.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductsService } from './products.service';
 
 @ApiTags('products')
@@ -42,5 +57,35 @@ export class ProductsController {
   @ApiOperation({ summary: 'Chi tiết sản phẩm kèm biến thể và ảnh' })
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.productsService.findOne(id);
+  }
+
+  @Roles('admin')
+  @ApiBearerAuth()
+  @Post()
+  @ApiOperation({ summary: '[Admin] Tạo sản phẩm mới kèm ảnh và biến thể' })
+  create(@Body() dto: CreateProductDto) {
+    return this.productsService.create(dto);
+  }
+
+  @Roles('admin')
+  @ApiBearerAuth()
+  @Put(':id')
+  @ApiOperation({
+    summary: '[Admin] Cập nhật sản phẩm (biến thể được upsert, không xóa)',
+  })
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateProductDto,
+  ) {
+    return this.productsService.update(id, dto);
+  }
+
+  @Roles('admin')
+  @ApiBearerAuth()
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[Admin] Ngừng bán sản phẩm (soft delete)' })
+  remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.productsService.remove(id);
   }
 }
