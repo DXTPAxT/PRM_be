@@ -7,6 +7,7 @@ import {
 } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { SafeUser } from './user.types';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UsersService } from './users.service';
 
@@ -47,5 +48,26 @@ export class UsersController {
   @ApiOperation({ summary: 'Cập nhật profile (họ tên, phone)' })
   async updateMe(@CurrentUser() user: SafeUser, @Body() dto: UpdateProfileDto) {
     return this.usersService.updateProfile(user.id, dto);
+  }
+
+  /**
+   * PATCH /api/users/me/password — đổi mật khẩu khi đã đăng nhập.
+   */
+  @Patch('me/password')
+  @ApiOperation({ summary: 'Đổi mật khẩu, yêu cầu mật khẩu hiện tại' })
+  @ApiResponse({ status: 200, description: 'Đổi mật khẩu thành công' })
+  @ApiResponse({
+    status: 401,
+    description: 'Mật khẩu hiện tại không chính xác',
+  })
+  async changePassword(
+    @CurrentUser() user: SafeUser,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    const updatedUser = await this.usersService.changePassword(user.id, dto);
+    return {
+      data: updatedUser,
+      message: 'Đổi mật khẩu thành công. Các phiên đăng nhập cũ đã bị thu hồi.',
+    };
   }
 }
