@@ -186,6 +186,7 @@ describe('AuthService', () => {
       bcrypt.compare('Password123!', createData!.passwordHash),
     ).resolves.toBe(true);
     expect(result.user).not.toHaveProperty('passwordHash');
+    expect(result.challenge).not.toHaveProperty('debugOtp');
     expect(otpChallengeCreate).toHaveBeenCalled();
     expect(mailSendOtp).toHaveBeenCalledWith(
       'user@example.com',

@@ -56,7 +56,6 @@ export interface OtpChallengeResponse {
   expiresAt: Date;
   resendAvailableAt: Date;
   remainingResends: number;
-  debugOtp?: string;
 }
 
 class OtpRateLimitException extends HttpException {
@@ -360,7 +359,7 @@ export class AuthService {
       },
     });
     await this.dispatchOtp(recipient, code, purpose);
-    return this.toOtpResponse(identifier, expiresAt, OTP_MAX_RESENDS, code);
+    return this.toOtpResponse(identifier, expiresAt, OTP_MAX_RESENDS);
   }
 
   private async rotateOtpChallenge(
@@ -386,7 +385,6 @@ export class AuthService {
       identifier,
       expiresAt,
       OTP_MAX_RESENDS - currentResendCount - 1,
-      code,
     );
   }
 
@@ -394,21 +392,13 @@ export class AuthService {
     identifier: string,
     expiresAt: Date,
     remainingResends: number,
-    code: string,
   ): OtpChallengeResponse {
-    const response: OtpChallengeResponse = {
+    return {
       identifier,
       expiresAt,
       resendAvailableAt: new Date(Date.now() + OTP_RESEND_COOLDOWN_MS),
       remainingResends,
     };
-    if (
-      (this.configService.get<string>('NODE_ENV') ?? 'development') !==
-      'production'
-    ) {
-      response.debugOtp = code;
-    }
-    return response;
   }
 
   private generateOtp(): string {
