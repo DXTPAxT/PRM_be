@@ -5,6 +5,7 @@ import {
   HttpStatus,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -13,6 +14,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import type { StringValue } from 'ms';
 import { OtpPurpose, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 import { SAFE_USER_SELECT, SafeUser } from '../users/user.types';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -73,6 +75,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService,
   ) {}
 
   // ── Register ─────────────────────────────────────────────────────────────
@@ -239,11 +242,17 @@ export class AuthService {
 
     if (!user || !user.isActive) return;
 
-    await this.createOtpChallenge(
-      user.id,
-      identifier,
-      OtpPurpose.password_reset,
-    );
+    try {
+      await this.createOtpChallenge(
+        user.id,
+        identifier,
+        OtpPurpose.password_reset,
+        user.email ?? identifier,
+      );
+    } catch (error: unknown) {
+      const trace = error instanceof Error ? error.stack : undefined;
+      this.logger.error('Không thể gửi OTP khôi phục mật khẩu', trace);
+    }
   }
 
   /**
@@ -334,6 +343,7 @@ export class AuthService {
     userId: string,
     identifier: string,
     purpose: OtpPurpose = OtpPurpose.registration,
+    recipient: string = identifier,
   ): Promise<OtpChallengeResponse> {
     const code = this.generateOtp();
     const now = new Date();
@@ -349,7 +359,7 @@ export class AuthService {
         lastSentAt: now,
       },
     });
-    this.dispatchOtp(identifier, code);
+    await this.dispatchOtp(recipient, code, purpose);
     return this.toOtpResponse(identifier, expiresAt, OTP_MAX_RESENDS, code);
   }
 
@@ -371,7 +381,7 @@ export class AuthService {
         lastSentAt: now,
       },
     });
-    this.dispatchOtp(identifier, code);
+    await this.dispatchOtp(identifier, code, OtpPurpose.registration);
     return this.toOtpResponse(
       identifier,
       expiresAt,
@@ -405,15 +415,25 @@ export class AuthService {
     return randomInt(0, 1_000_000).toString().padStart(6, '0');
   }
 
-  private dispatchOtp(identifier: string, code: string): void {
-    // Replace this adapter with an email/SMS provider when credentials are configured.
-    if (this.configService.get<string>('NODE_ENV') === 'production') {
-      this.logger.warn(
-        `OTP delivery provider is not configured for ${identifier}`,
+  private async dispatchOtp(
+    identifier: string,
+    code: string,
+    purpose: OtpPurpose,
+  ): Promise<void> {
+    if (!identifier.includes('@')) {
+      if (this.configService.get<string>('NODE_ENV') !== 'production') {
+        this.logger.warn(
+          `Nhà cung cấp SMS chưa được cấu hình. OTP cho ${identifier}: ${code}`,
+        );
+        return;
+      }
+      this.logger.warn(`Nhà cung cấp SMS chưa được cấu hình cho ${identifier}`);
+      throw new ServiceUnavailableException(
+        'Hiện tại hệ thống chỉ hỗ trợ gửi OTP qua email',
       );
-      return;
     }
-    this.logger.log(`OTP for ${identifier}: ${code}`);
+
+    await this.mailService.sendOtp(identifier, code, purpose);
   }
 
   // ── Login ─────────────────────────────────────────────────────────────────

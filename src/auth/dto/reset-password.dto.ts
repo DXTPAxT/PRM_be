@@ -16,7 +16,7 @@ export class ResetPasswordDto {
 
   @ApiProperty({
     example: '123456',
-    description: 'Mã OTP nhận được qua email/SMS',
+    description: 'Mã OTP nhận được qua email',
   })
   @IsString()
   @Matches(/^\d{6}$/, { message: 'OTP phải gồm đúng 6 chữ số' })

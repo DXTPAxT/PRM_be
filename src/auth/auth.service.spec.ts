@@ -5,9 +5,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { Role } from '@prisma/client';
+import { OtpPurpose, Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 import { SAFE_USER_SELECT, SafeUser } from '../users/user.types';
 import { AuthService } from './auth.service';
 
@@ -74,6 +75,7 @@ describe('AuthService', () => {
     return 'token';
   });
   const jwtVerify = jest.fn();
+  const mailSendOtp = jest.fn<Promise<void>, [string, string, OtpPurpose]>();
 
   const prisma = {
     user: {
@@ -112,6 +114,10 @@ describe('AuthService', () => {
     getOrThrow: jest.fn((key: string) => configValues[key]),
   } as unknown as ConfigService;
 
+  const mailService = {
+    sendOtp: mailSendOtp,
+  } as unknown as MailService;
+
   const now = new Date('2026-07-19T00:00:00.000Z');
   const safeUser: SafeUser = {
     id: 'user-1',
@@ -143,7 +149,8 @@ describe('AuthService', () => {
       return Promise.resolve();
     });
     userUpdate.mockResolvedValue(safeUser);
-    service = new AuthService(prisma, jwtService, configService);
+    mailSendOtp.mockResolvedValue(undefined);
+    service = new AuthService(prisma, jwtService, configService, mailService);
   });
 
   it('chuẩn hóa dữ liệu, hash password và không trả passwordHash khi register', async () => {
@@ -180,6 +187,11 @@ describe('AuthService', () => {
     ).resolves.toBe(true);
     expect(result.user).not.toHaveProperty('passwordHash');
     expect(otpChallengeCreate).toHaveBeenCalled();
+    expect(mailSendOtp).toHaveBeenCalledWith(
+      'user@example.com',
+      expect.stringMatching(/^\d{6}$/),
+      OtpPurpose.registration,
+    );
   });
 
   it('từ chối register nếu thiếu cả email và phone', async () => {
@@ -409,6 +421,21 @@ describe('AuthService', () => {
       identifier: 'user@example.com',
       purpose: 'password_reset',
     });
+    expect(mailSendOtp).toHaveBeenCalledWith(
+      'user@example.com',
+      expect.stringMatching(/^\d{6}$/),
+      OtpPurpose.password_reset,
+    );
+  });
+
+  it('không tiết lộ tài khoản khi dịch vụ email password reset bị lỗi', async () => {
+    userFindFirst.mockResolvedValue(safeUser);
+    mailSendOtp.mockRejectedValueOnce(new Error('SMTP unavailable'));
+
+    await expect(
+      service.forgotPassword({ identifier: safeUser.email! }),
+    ).resolves.toBeUndefined();
+    expect(otpChallengeCreate).toHaveBeenCalled();
   });
 
   it('đổi mật khẩu bằng OTP và thu hồi toàn bộ phiên cũ', async () => {

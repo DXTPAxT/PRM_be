@@ -116,7 +116,7 @@ export class AuthController {
     return {
       data: null,
       message:
-        'Nếu thông tin tồn tại, mã OTP khôi phục sẽ được gửi qua email hoặc SMS.',
+        'Nếu thông tin tồn tại, mã OTP khôi phục sẽ được gửi qua email đã liên kết.',
     };
   }
 
