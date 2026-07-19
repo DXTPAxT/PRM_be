@@ -5,8 +5,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import type { User } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import type { SafeUser } from './user.types';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UsersService } from './users.service';
 
@@ -36,7 +36,7 @@ export class UsersController {
   @ApiOperation({ summary: 'Lấy thông tin profile người dùng hiện tại' })
   @ApiResponse({ status: 200, description: 'Thông tin user' })
   @ApiResponse({ status: 401, description: 'Chưa xác thực' })
-  async getMe(@CurrentUser() user: User) {
+  async getMe(@CurrentUser() user: SafeUser) {
     return this.usersService.findById(user.id);
   }
 
@@ -45,7 +45,7 @@ export class UsersController {
    */
   @Patch('me')
   @ApiOperation({ summary: 'Cập nhật profile (họ tên, phone)' })
-  async updateMe(@CurrentUser() user: User, @Body() dto: UpdateProfileDto) {
+  async updateMe(@CurrentUser() user: SafeUser, @Body() dto: UpdateProfileDto) {
     return this.usersService.updateProfile(user.id, dto);
   }
 }

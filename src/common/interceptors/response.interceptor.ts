@@ -26,7 +26,7 @@ export interface PaginationMeta {
 
 export interface StandardResponse<T = unknown> {
   success: boolean;
-  data: T;
+  data: T | null;
   message: string;
   meta?: PaginationMeta;
 }

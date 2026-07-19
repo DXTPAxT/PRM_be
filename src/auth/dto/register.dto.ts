@@ -1,22 +1,31 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsEmail,
+  IsOptional,
   IsString,
+  Length,
   Matches,
   MinLength,
-  ValidateIf,
 } from 'class-validator';
 
 export class RegisterDto {
   @ApiProperty({ example: 'Nguyễn Văn A', description: 'Họ và tên đầy đủ' })
   @IsString()
+  @Length(2, 100, { message: 'Họ tên phải có từ 2 đến 100 ký tự' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   fullName: string;
 
   @ApiPropertyOptional({
     example: 'user@example.com',
     description: 'Email (bắt buộc nếu không có phone)',
   })
-  @ValidateIf((o: RegisterDto) => !o.phone)
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
   @IsEmail({}, { message: 'Email không hợp lệ' })
   email?: string;
 
@@ -24,9 +33,12 @@ export class RegisterDto {
     example: '0901234567',
     description: 'Số điện thoại (bắt buộc nếu không có email)',
   })
-  @ValidateIf((o: RegisterDto) => !o.email)
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString()
-  @Matches(/^(0[3|5|7|8|9])+([0-9]{8})$/, {
+  @Matches(/^0[35789][0-9]{8}$/, {
     message: 'Số điện thoại không hợp lệ',
   })
   phone?: string;

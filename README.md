@@ -107,12 +107,12 @@ src/
 ├── products/               # 🚧 STUB — M2 implement
 ├── categories/             # 🚧 STUB — M2 implement
 ├── reviews/                # 🚧 STUB — M2 implement
-├── wishlist/               # 🚧 STUB — M2 implement
+├── wishlist/               # 🚧 STUB — M1 implement
 ├── cart/                   # 🚧 STUB — M3 implement
 ├── orders/                 # 🚧 STUB — M3 implement
 ├── payments/               # 🚧 STUB — M3 implement
-├── vouchers/               # 🚧 STUB — M3 implement
-├── notifications/          # 🚧 STUB — M4 implement
+├── vouchers/               # 🚧 STUB — M4 implement
+├── notifications/          # 🚧 STUB — M1 implement
 ├── admin/                  # 🚧 STUB — M4 implement
 └── reports/                # 🚧 STUB — M4 implement
 ```

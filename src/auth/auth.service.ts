@@ -6,9 +6,13 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'node:crypto';
+import type { StringValue } from 'ms';
 import { PrismaService } from '../prisma/prisma.service';
+import { SAFE_USER_SELECT, SafeUser } from '../users/user.types';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { AccessTokenPayload, RefreshTokenPayload } from './types/jwt-payload';
 import * as bcrypt from 'bcryptjs';
 
 /**
@@ -43,20 +47,23 @@ export class AuthService {
   // ── Register ─────────────────────────────────────────────────────────────
 
   async register(dto: RegisterDto) {
-    if (!dto.email && !dto.phone) {
+    const email = dto.email?.trim().toLowerCase();
+    const phone = dto.phone?.trim();
+
+    if (!email && !phone) {
       throw new BadRequestException('Phải cung cấp email hoặc số điện thoại');
     }
 
     // Kiểm tra trùng email/phone
-    if (dto.email) {
+    if (email) {
       const exists = await this.prisma.user.findUnique({
-        where: { email: dto.email },
+        where: { email },
       });
       if (exists) throw new ConflictException('Email đã được sử dụng');
     }
-    if (dto.phone) {
+    if (phone) {
       const exists = await this.prisma.user.findUnique({
-        where: { phone: dto.phone },
+        where: { phone },
       });
       if (exists) throw new ConflictException('Số điện thoại đã được sử dụng');
     }
@@ -65,20 +72,13 @@ export class AuthService {
 
     const user = await this.prisma.user.create({
       data: {
-        fullName: dto.fullName,
-        email: dto.email,
-        phone: dto.phone,
+        fullName: dto.fullName.trim(),
+        email,
+        phone,
         passwordHash,
         // role mặc định = customer (theo schema)
       },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        phone: true,
-        role: true,
-        createdAt: true,
-      },
+      select: SAFE_USER_SELECT,
     });
 
     // TODO: [OTP] UC-01 yêu cầu gửi OTP xác thực trước khi kích hoạt account.
@@ -90,11 +90,14 @@ export class AuthService {
   // ── Login ─────────────────────────────────────────────────────────────────
 
   async login(dto: LoginDto) {
+    const identifier = dto.identifier.trim().toLowerCase();
+
     // Tìm user theo email hoặc phone
     const user = await this.prisma.user.findFirst({
       where: {
-        OR: [{ email: dto.identifier }, { phone: dto.identifier }],
+        OR: [{ email: identifier }, { phone: identifier }],
       },
+      select: { ...SAFE_USER_SELECT, passwordHash: true },
     });
 
     if (!user)
@@ -105,27 +108,39 @@ export class AuthService {
     if (!passwordMatch)
       throw new UnauthorizedException('Email/phone hoặc mật khẩu không đúng');
 
-    return this.issueTokenPair(
-      user.id,
-      user.email ?? undefined,
-      user.phone ?? undefined,
-      user.role,
-    );
+    const safeUser: SafeUser = {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+    const tokens = await this.issueTokenPair(safeUser);
+
+    return { ...tokens, user: safeUser };
   }
 
   // ── Refresh ───────────────────────────────────────────────────────────────
 
   async refresh(rawRefreshToken: string) {
     // 1. Verify chữ ký JWT
-    let payload: { sub: string };
+    let payload: RefreshTokenPayload;
     try {
-      payload = this.jwtService.verify(rawRefreshToken, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+      payload = this.jwtService.verify<RefreshTokenPayload>(rawRefreshToken, {
+        secret: this.configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
+        algorithms: ['HS256'],
       });
     } catch {
       throw new UnauthorizedException(
         'Refresh token không hợp lệ hoặc đã hết hạn',
       );
+    }
+
+    if (payload.tokenType !== 'refresh') {
+      throw new UnauthorizedException('Refresh token không hợp lệ');
     }
 
     // 2. Tìm tất cả refresh token còn hạn và chưa revoke của user
@@ -162,43 +177,42 @@ export class AuthService {
     // 5. Lấy user và cấp cặp token mới
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
+      select: SAFE_USER_SELECT,
     });
     if (!user || !user.isActive)
       throw new UnauthorizedException('Tài khoản không hợp lệ');
 
-    return this.issueTokenPair(
-      user.id,
-      user.email ?? undefined,
-      user.phone ?? undefined,
-      user.role,
-    );
+    return this.issueTokenPair(user);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  private async issueTokenPair(
-    userId: string,
-    email: string | undefined,
-    phone: string | undefined,
-    role: string,
-  ) {
-    const jwtSecret = this.configService.get<string>('JWT_SECRET');
-    const jwtExpiresIn =
-      this.configService.get<string>('JWT_EXPIRES_IN') ?? '15m';
-    const refreshSecret = this.configService.get<string>('JWT_REFRESH_SECRET');
+  private async issueTokenPair(user: SafeUser) {
+    const refreshSecret =
+      this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
     const refreshExpiresIn =
       this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') ?? '7d';
 
-    const payload = { sub: userId, email, phone, role };
+    const accessPayload: AccessTokenPayload = {
+      sub: user.id,
+      email: user.email ?? undefined,
+      phone: user.phone ?? undefined,
+      role: user.role,
+      tokenType: 'access',
+      jti: randomUUID(),
+    };
+    const refreshPayload: RefreshTokenPayload = {
+      sub: user.id,
+      tokenType: 'refresh',
+      jti: randomUUID(),
+    };
 
-    const accessToken = this.jwtService.sign(payload, {
-      secret: jwtSecret,
-      expiresIn: jwtExpiresIn as '15m',
-    });
+    const accessToken = this.jwtService.sign(accessPayload);
 
-    const refreshToken = this.jwtService.sign(payload, {
+    const refreshToken = this.jwtService.sign(refreshPayload, {
       secret: refreshSecret,
-      expiresIn: refreshExpiresIn as '7d',
+      algorithm: 'HS256',
+      expiresIn: refreshExpiresIn as StringValue,
     });
 
     // Lưu hash của refresh token vào DB để có thể revoke
@@ -207,7 +221,7 @@ export class AuthService {
 
     await this.prisma.refreshToken.create({
       data: {
-        userId,
+        userId: user.id,
         tokenHash,
         expiresAt,
       },
@@ -223,15 +237,18 @@ export class AuthService {
    * Gọi khi user logout trên thiết bị hiện tại.
    */
   async logout(rawRefreshToken: string): Promise<void> {
-    let payload: { sub: string };
+    let payload: RefreshTokenPayload;
     try {
-      payload = this.jwtService.verify(rawRefreshToken, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+      payload = this.jwtService.verify<RefreshTokenPayload>(rawRefreshToken, {
+        secret: this.configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
+        algorithms: ['HS256'],
       });
     } catch {
       // Token hết hạn hoặc không hợp lệ → coi như đã logout
       return;
     }
+
+    if (payload.tokenType !== 'refresh') return;
 
     const storedTokens = await this.prisma.refreshToken.findMany({
       where: { userId: payload.sub, revoked: false },

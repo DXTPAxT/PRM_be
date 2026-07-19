@@ -10,7 +10,7 @@ export class UpdateProfileDto {
   @ApiPropertyOptional({ example: '0909999888' })
   @IsOptional()
   @IsString()
-  @Matches(/^(0[3|5|7|8|9])+([0-9]{8})$/, {
+  @Matches(/^0[35789][0-9]{8}$/, {
     message: 'Số điện thoại không hợp lệ',
   })
   phone?: string;

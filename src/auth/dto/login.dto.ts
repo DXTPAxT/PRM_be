@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsString } from 'class-validator';
 
 export class LoginDto {
@@ -8,6 +9,9 @@ export class LoginDto {
   })
   @IsString()
   @IsNotEmpty({ message: 'Email/phone không được để trống' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
   identifier: string;
 
   @ApiProperty({ example: 'Password123!' })

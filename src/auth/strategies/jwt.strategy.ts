@@ -3,17 +3,12 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
-
-export interface JwtPayload {
-  sub: string; // userId
-  email?: string;
-  phone?: string;
-  role: string;
-}
+import { SAFE_USER_SELECT } from '../../users/user.types';
+import { AccessTokenPayload } from '../types/jwt-payload';
 
 /**
  * Strategy xác thực Access Token.
- * Inject user đầy đủ vào request.user để guard/decorator dùng.
+ * Chỉ inject các trường user an toàn vào request.user để guard/decorator dùng.
  */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
@@ -24,14 +19,19 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      // JWT_SECRET được validate bởi Joi trong AppModule, luôn tồn tại
-      secretOrKey: configService.get<string>('JWT_SECRET')!,
+      algorithms: ['HS256'],
+      secretOrKey: configService.getOrThrow<string>('JWT_SECRET'),
     });
   }
 
-  async validate(payload: JwtPayload) {
+  async validate(payload: AccessTokenPayload) {
+    if (payload.tokenType !== 'access') {
+      throw new UnauthorizedException('Loại token không hợp lệ');
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
+      select: SAFE_USER_SELECT,
     });
 
     if (!user || !user.isActive) {
