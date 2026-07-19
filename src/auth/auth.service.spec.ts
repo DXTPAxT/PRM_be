@@ -1,4 +1,8 @@
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Role } from '@prisma/client';
@@ -13,8 +17,19 @@ interface UserCreateArgs {
     email?: string;
     phone?: string;
     passwordHash: string;
+    isActive?: boolean;
+    role?: Role;
   };
   select: typeof SAFE_USER_SELECT;
+}
+
+interface OtpCreateArgs {
+  data: {
+    userId: string;
+    identifier: string;
+    codeHash: string;
+    expiresAt: Date;
+  };
 }
 
 interface RefreshTokenCreateArgs {
@@ -33,10 +48,17 @@ interface SignedPayload {
 describe('AuthService', () => {
   const userFindUnique = jest.fn();
   const userFindFirst = jest.fn();
+  const userUpdate = jest.fn();
   const userCreate = jest.fn((args: UserCreateArgs): Promise<SafeUser> => {
     void args;
     return Promise.resolve(safeUser);
   });
+  const otpChallengeCreate = jest.fn((args: OtpCreateArgs): Promise<void> => {
+    void args;
+    return Promise.resolve();
+  });
+  const otpChallengeFindFirst = jest.fn();
+  const otpChallengeUpdate = jest.fn();
   const refreshTokenCreate = jest.fn(
     (args: RefreshTokenCreateArgs): Promise<void> => {
       void args;
@@ -57,6 +79,12 @@ describe('AuthService', () => {
       findUnique: userFindUnique,
       findFirst: userFindFirst,
       create: userCreate,
+      update: userUpdate,
+    },
+    otpChallenge: {
+      create: otpChallengeCreate,
+      findFirst: otpChallengeFindFirst,
+      update: otpChallengeUpdate,
     },
     refreshToken: {
       create: refreshTokenCreate,
@@ -75,6 +103,7 @@ describe('AuthService', () => {
     JWT_SECRET: 'access-secret-at-least-32-characters',
     JWT_REFRESH_SECRET: 'refresh-secret-at-least-32-characters',
     JWT_REFRESH_EXPIRES_IN: '7d',
+    NODE_ENV: 'test',
   };
   const configService = {
     get: jest.fn((key: string) => configValues[key]),
@@ -123,6 +152,7 @@ describe('AuthService', () => {
         fullName: args.data.fullName,
         email: args.data.email ?? null,
         phone: args.data.phone ?? null,
+        isActive: args.data.isActive ?? true,
       });
     });
 
@@ -137,6 +167,7 @@ describe('AuthService', () => {
       fullName: 'Nguyễn Văn A',
       email: 'user@example.com',
       phone: '0901234567',
+      isActive: false,
     });
     expect(createdUserArgs?.select).toBe(SAFE_USER_SELECT);
     const createData = createdUserArgs?.data;
@@ -145,6 +176,7 @@ describe('AuthService', () => {
       bcrypt.compare('Password123!', createData!.passwordHash),
     ).resolves.toBe(true);
     expect(result.user).not.toHaveProperty('passwordHash');
+    expect(otpChallengeCreate).toHaveBeenCalled();
   });
 
   it('từ chối register nếu thiếu cả email và phone', async () => {
@@ -189,6 +221,94 @@ describe('AuthService', () => {
     await expect(bcrypt.compare('refresh-token', storedHash!)).resolves.toBe(
       true,
     );
+  });
+
+  it('kích hoạt tài khoản và tự đăng nhập sau khi xác thực OTP đúng', async () => {
+    const pendingUser = { ...safeUser, isActive: false };
+    const codeHash = await bcrypt.hash('123456', 4);
+    userFindFirst.mockResolvedValue(pendingUser);
+    otpChallengeFindFirst.mockResolvedValue({
+      id: 'otp-1',
+      userId: safeUser.id,
+      codeHash,
+      expiresAt: new Date(Date.now() + 60_000),
+      attempts: 0,
+      maxAttempts: 5,
+    });
+    otpChallengeUpdate.mockResolvedValue(undefined);
+    userUpdate.mockResolvedValue(safeUser);
+
+    const result = await service.verifyRegistrationOtp({
+      identifier: ' USER@EXAMPLE.COM ',
+      otp: '123456',
+    });
+
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: safeUser.id },
+      data: { isActive: true },
+      select: SAFE_USER_SELECT,
+    });
+    expect(otpChallengeUpdate).toHaveBeenCalledWith({
+      where: { id: 'otp-1' },
+      data: { consumedAt: expect.any(Date) as unknown },
+    });
+    expect(result).toEqual({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      user: safeUser,
+    });
+  });
+
+  it('khóa phiên OTP sau lần nhập sai thứ 5', async () => {
+    const codeHash = await bcrypt.hash('123456', 4);
+    userFindFirst.mockResolvedValue({ ...safeUser, isActive: false });
+    otpChallengeFindFirst.mockResolvedValue({
+      id: 'otp-1',
+      userId: safeUser.id,
+      codeHash,
+      expiresAt: new Date(Date.now() + 60_000),
+      attempts: 4,
+      maxAttempts: 5,
+    });
+    otpChallengeUpdate.mockResolvedValue(undefined);
+
+    let thrown: unknown;
+    try {
+      await service.verifyRegistrationOtp({
+        identifier: safeUser.email!,
+        otp: '000000',
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(HttpException);
+    expect((thrown as HttpException).getStatus()).toBe(429);
+    expect(otpChallengeUpdate).toHaveBeenCalledWith({
+      where: { id: 'otp-1' },
+      data: { attempts: 5 },
+    });
+  });
+
+  it('giới hạn tối đa 3 lần gửi lại OTP', async () => {
+    userFindFirst.mockResolvedValue({ ...safeUser, isActive: false });
+    otpChallengeFindFirst.mockResolvedValue({
+      id: 'otp-1',
+      userId: safeUser.id,
+      lastSentAt: new Date(Date.now() - 61_000),
+      resendCount: 3,
+    });
+
+    let thrown: unknown;
+    try {
+      await service.resendRegistrationOtp({ identifier: safeUser.email! });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(HttpException);
+    expect((thrown as HttpException).getStatus()).toBe(429);
+    expect(otpChallengeUpdate).not.toHaveBeenCalled();
   });
 
   it('không chấp nhận access token tại endpoint refresh', async () => {

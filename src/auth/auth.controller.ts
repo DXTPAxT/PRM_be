@@ -12,6 +12,8 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResendOtpDto } from './dto/resend-otp.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { Public } from '../common/decorators/public.decorator';
 
 @ApiTags('auth')
@@ -32,7 +34,11 @@ export class AuthController {
   })
   @ApiResponse({ status: 409, description: 'Email hoặc phone đã tồn tại' })
   async register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+    const result = await this.authService.register(dto);
+    return {
+      data: result.challenge,
+      message: 'Mã OTP đã được gửi. Vui lòng xác thực để kích hoạt tài khoản.',
+    };
   }
 
   // ── POST /api/auth/login ─────────────────────────────────────────────────
@@ -75,17 +81,28 @@ export class AuthController {
   }
 
   // ── POST /api/auth/otp/verify ────────────────────────────────────────────
-  // TODO: [OTP] M1 implement — gửi OTP qua SMS, verify trước khi kích hoạt account
-
   @Post('otp/verify')
   @Public()
-  @HttpCode(HttpStatus.NOT_IMPLEMENTED)
-  @ApiOperation({ summary: '[TODO] Xác thực OTP — chưa implement, M1 sẽ làm' })
-  @ApiResponse({ status: 501, description: 'Chưa implement' })
-  otpVerify() {
-    throw new NotImplementedException(
-      'OTP verify chưa được implement. M1 sẽ làm sau khi tích hợp SMS provider.',
-    );
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: 'Xác thực OTP đăng ký và tự động đăng nhập' })
+  @ApiResponse({ status: 200, description: 'Kích hoạt tài khoản và trả token' })
+  async otpVerify(@Body() dto: VerifyOtpDto) {
+    return this.authService.verifyRegistrationOtp(dto);
+  }
+
+  @Post('otp/resend')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @ApiOperation({ summary: 'Gửi lại OTP đăng ký' })
+  @ApiResponse({ status: 200, description: 'OTP mới đã được gửi' })
+  async otpResend(@Body() dto: ResendOtpDto) {
+    const challenge = await this.authService.resendRegistrationOtp(dto);
+    return {
+      data: challenge,
+      message: 'OTP mới đã được gửi.',
+    };
   }
 
   // ── POST /api/auth/forgot-password ──────────────────────────────────────

@@ -1,17 +1,23 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import type { StringValue } from 'ms';
+import { OtpPurpose, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SAFE_USER_SELECT, SafeUser } from '../users/user.types';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { ResendOtpDto } from './dto/resend-otp.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { AccessTokenPayload, RefreshTokenPayload } from './types/jwt-payload';
 import * as bcrypt from 'bcryptjs';
 
@@ -34,10 +40,31 @@ function parseDuration(value: string): number {
   return parseInt(match[1]) * units[match[2]];
 }
 
+const OTP_TTL_MS = 10 * 60 * 1000;
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_MAX_RESENDS = 3;
+const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+
+export interface OtpChallengeResponse {
+  identifier: string;
+  expiresAt: Date;
+  resendAvailableAt: Date;
+  remainingResends: number;
+  debugOtp?: string;
+}
+
+class OtpRateLimitException extends HttpException {
+  constructor(message: string) {
+    super(message, HttpStatus.TOO_MANY_REQUESTS);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
@@ -76,15 +103,221 @@ export class AuthService {
         email,
         phone,
         passwordHash,
-        // role mặc định = customer (theo schema)
+        role: Role.customer,
+        isActive: false,
       },
       select: SAFE_USER_SELECT,
     });
 
-    // TODO: [OTP] UC-01 yêu cầu gửi OTP xác thực trước khi kích hoạt account.
-    // Khi M1 implement: lưu OTP + TTL vào Redis, gửi SMS, và đặt isActive=false cho đến khi verify.
+    const identifier = email ?? phone!;
+    const challenge = await this.createOtpChallenge(user.id, identifier);
 
-    return { user };
+    return { user, challenge };
+  }
+
+  async verifyRegistrationOtp(dto: VerifyOtpDto) {
+    const identifier = this.normalizeIdentifier(dto.identifier);
+    const user = await this.findUserByIdentifier(identifier);
+
+    if (!user) {
+      throw new BadRequestException(
+        'Email/số điện thoại hoặc OTP không hợp lệ',
+      );
+    }
+    if (user.isActive) {
+      throw new BadRequestException('Tài khoản đã được xác thực');
+    }
+
+    const challenge = await this.prisma.otpChallenge.findFirst({
+      where: {
+        userId: user.id,
+        purpose: OtpPurpose.registration,
+        consumedAt: null,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!challenge || challenge.expiresAt <= new Date()) {
+      throw new BadRequestException('OTP đã hết hạn. Vui lòng gửi lại OTP');
+    }
+    if (challenge.attempts >= challenge.maxAttempts) {
+      throw new OtpRateLimitException(
+        'Bạn đã nhập sai OTP quá số lần cho phép. Vui lòng gửi lại OTP',
+      );
+    }
+
+    const isValid = await bcrypt.compare(dto.otp, challenge.codeHash);
+    if (!isValid) {
+      const attempts = challenge.attempts + 1;
+      await this.prisma.otpChallenge.update({
+        where: { id: challenge.id },
+        data: { attempts },
+      });
+      if (attempts >= challenge.maxAttempts) {
+        throw new OtpRateLimitException(
+          'Bạn đã nhập sai OTP quá số lần cho phép. Vui lòng gửi lại OTP',
+        );
+      }
+      throw new BadRequestException(
+        `OTP không chính xác. Bạn còn ${challenge.maxAttempts - attempts} lần thử`,
+      );
+    }
+
+    await this.prisma.otpChallenge.update({
+      where: { id: challenge.id },
+      data: { consumedAt: new Date() },
+    });
+    const activatedUser = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { isActive: true },
+      select: SAFE_USER_SELECT,
+    });
+    const tokens = await this.issueTokenPair(activatedUser);
+
+    return { ...tokens, user: activatedUser };
+  }
+
+  async resendRegistrationOtp(
+    dto: ResendOtpDto,
+  ): Promise<OtpChallengeResponse> {
+    const identifier = this.normalizeIdentifier(dto.identifier);
+    const user = await this.findUserByIdentifier(identifier);
+
+    if (!user || user.isActive) {
+      throw new BadRequestException('Không thể gửi lại OTP cho tài khoản này');
+    }
+
+    const challenge = await this.prisma.otpChallenge.findFirst({
+      where: {
+        userId: user.id,
+        purpose: OtpPurpose.registration,
+        consumedAt: null,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!challenge) {
+      throw new BadRequestException(
+        'Không tìm thấy phiên đăng ký cần xác thực',
+      );
+    }
+
+    const now = Date.now();
+    const nextAllowedAt =
+      challenge.lastSentAt.getTime() + OTP_RESEND_COOLDOWN_MS;
+    if (now < nextAllowedAt) {
+      const seconds = Math.ceil((nextAllowedAt - now) / 1000);
+      throw new OtpRateLimitException(
+        `Vui lòng chờ ${seconds} giây trước khi gửi lại OTP`,
+      );
+    }
+    if (challenge.resendCount >= OTP_MAX_RESENDS) {
+      throw new OtpRateLimitException(
+        'Bạn đã vượt quá số lần gửi lại OTP cho phép',
+      );
+    }
+
+    return this.rotateOtpChallenge(
+      challenge.id,
+      identifier,
+      challenge.resendCount,
+    );
+  }
+
+  private normalizeIdentifier(identifier: string): string {
+    const normalized = identifier.trim();
+    return normalized.includes('@') ? normalized.toLowerCase() : normalized;
+  }
+
+  private async findUserByIdentifier(identifier: string) {
+    return this.prisma.user.findFirst({
+      where: { OR: [{ email: identifier }, { phone: identifier }] },
+      select: SAFE_USER_SELECT,
+    });
+  }
+
+  private async createOtpChallenge(
+    userId: string,
+    identifier: string,
+  ): Promise<OtpChallengeResponse> {
+    const code = this.generateOtp();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + OTP_TTL_MS);
+    await this.prisma.otpChallenge.create({
+      data: {
+        userId,
+        identifier,
+        purpose: OtpPurpose.registration,
+        codeHash: await bcrypt.hash(code, 10),
+        expiresAt,
+        maxAttempts: OTP_MAX_ATTEMPTS,
+        lastSentAt: now,
+      },
+    });
+    this.dispatchOtp(identifier, code);
+    return this.toOtpResponse(identifier, expiresAt, OTP_MAX_RESENDS, code);
+  }
+
+  private async rotateOtpChallenge(
+    challengeId: string,
+    identifier: string,
+    currentResendCount: number,
+  ): Promise<OtpChallengeResponse> {
+    const code = this.generateOtp();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + OTP_TTL_MS);
+    await this.prisma.otpChallenge.update({
+      where: { id: challengeId },
+      data: {
+        codeHash: await bcrypt.hash(code, 10),
+        expiresAt,
+        attempts: 0,
+        resendCount: currentResendCount + 1,
+        lastSentAt: now,
+      },
+    });
+    this.dispatchOtp(identifier, code);
+    return this.toOtpResponse(
+      identifier,
+      expiresAt,
+      OTP_MAX_RESENDS - currentResendCount - 1,
+      code,
+    );
+  }
+
+  private toOtpResponse(
+    identifier: string,
+    expiresAt: Date,
+    remainingResends: number,
+    code: string,
+  ): OtpChallengeResponse {
+    const response: OtpChallengeResponse = {
+      identifier,
+      expiresAt,
+      resendAvailableAt: new Date(Date.now() + OTP_RESEND_COOLDOWN_MS),
+      remainingResends,
+    };
+    if (
+      (this.configService.get<string>('NODE_ENV') ?? 'development') !==
+      'production'
+    ) {
+      response.debugOtp = code;
+    }
+    return response;
+  }
+
+  private generateOtp(): string {
+    return randomInt(0, 1_000_000).toString().padStart(6, '0');
+  }
+
+  private dispatchOtp(identifier: string, code: string): void {
+    // Replace this adapter with an email/SMS provider when credentials are configured.
+    if (this.configService.get<string>('NODE_ENV') === 'production') {
+      this.logger.warn(
+        `OTP delivery provider is not configured for ${identifier}`,
+      );
+      return;
+    }
+    this.logger.log(`OTP for ${identifier}: ${code}`);
   }
 
   // ── Login ─────────────────────────────────────────────────────────────────
@@ -102,7 +335,9 @@ export class AuthService {
 
     if (!user)
       throw new UnauthorizedException('Email/phone hoặc mật khẩu không đúng');
-    if (!user.isActive) throw new UnauthorizedException('Tài khoản đã bị khoá');
+    if (!user.isActive) {
+      throw new UnauthorizedException('Tài khoản chưa được xác thực OTP');
+    }
 
     const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordMatch)
