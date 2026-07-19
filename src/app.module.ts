@@ -7,6 +7,7 @@ import * as Joi from 'joi';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { AddressesModule } from './addresses/addresses.module';
 import { ProductsModule } from './products/products.module';
 import { CategoriesModule } from './categories/categories.module';
 import { ReviewsModule } from './reviews/reviews.module';
@@ -65,6 +66,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     // ── Feature Modules ───────────────────────────────────────────────────
     AuthModule,
     UsersModule,
+    AddressesModule,
     ProductsModule,
     CategoriesModule,
     ReviewsModule,
