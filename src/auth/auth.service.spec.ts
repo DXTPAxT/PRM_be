@@ -59,6 +59,7 @@ describe('AuthService', () => {
   });
   const otpChallengeFindFirst = jest.fn();
   const otpChallengeUpdate = jest.fn();
+  const otpChallengeUpdateMany = jest.fn();
   const refreshTokenCreate = jest.fn(
     (args: RefreshTokenCreateArgs): Promise<void> => {
       void args;
@@ -85,6 +86,7 @@ describe('AuthService', () => {
       create: otpChallengeCreate,
       findFirst: otpChallengeFindFirst,
       update: otpChallengeUpdate,
+      updateMany: otpChallengeUpdateMany,
     },
     refreshToken: {
       create: refreshTokenCreate,
@@ -381,6 +383,86 @@ describe('AuthService', () => {
     expect(thrown).toBeInstanceOf(HttpException);
     expect((thrown as HttpException).getStatus()).toBe(429);
     expect(otpChallengeUpdate).not.toHaveBeenCalled();
+  });
+
+  it('gửi OTP password reset nhưng không tiết lộ tài khoản không tồn tại', async () => {
+    userFindFirst.mockResolvedValue(null);
+
+    await expect(
+      service.forgotPassword({ identifier: 'unknown@example.com' }),
+    ).resolves.toBeUndefined();
+    expect(otpChallengeCreate).not.toHaveBeenCalled();
+  });
+
+  it('tạo challenge password reset cho tài khoản đang hoạt động', async () => {
+    userFindFirst.mockResolvedValue(safeUser);
+
+    await service.forgotPassword({ identifier: ' USER@EXAMPLE.COM ' });
+
+    const createCall = otpChallengeCreate.mock.calls[0] as unknown as [
+      {
+        data: { userId: string; identifier: string; purpose: string };
+      },
+    ];
+    expect(createCall[0].data).toMatchObject({
+      userId: safeUser.id,
+      identifier: 'user@example.com',
+      purpose: 'password_reset',
+    });
+  });
+
+  it('đổi mật khẩu bằng OTP và thu hồi toàn bộ phiên cũ', async () => {
+    const codeHash = await bcrypt.hash('123456', 4);
+    userFindFirst.mockResolvedValue(safeUser);
+    otpChallengeFindFirst.mockResolvedValue({
+      id: 'reset-otp-1',
+      userId: safeUser.id,
+      codeHash,
+      expiresAt: new Date(Date.now() + 60_000),
+      attempts: 0,
+      maxAttempts: 5,
+    });
+
+    await service.resetPassword({
+      identifier: safeUser.email!,
+      otp: '123456',
+      newPassword: 'NewPassword123!',
+    });
+
+    const updateCall = (
+      userUpdate.mock.calls[0] as unknown as [
+        {
+          data: {
+            passwordHash: string;
+            failedLoginAttempts: number;
+            lockedUntil: Date | null;
+          };
+        },
+      ]
+    )[0];
+    await expect(
+      bcrypt.compare('NewPassword123!', updateCall.data.passwordHash),
+    ).resolves.toBe(true);
+    expect(updateCall.data).toMatchObject({
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+    });
+    expect(otpChallengeUpdate).toHaveBeenCalledWith({
+      where: { id: 'reset-otp-1' },
+      data: { consumedAt: expect.any(Date) as unknown },
+    });
+    expect(otpChallengeUpdateMany).toHaveBeenCalledWith({
+      where: {
+        userId: safeUser.id,
+        purpose: 'password_reset',
+        consumedAt: null,
+      },
+      data: { consumedAt: expect.any(Date) as unknown },
+    });
+    expect(refreshTokenUpdateMany).toHaveBeenCalledWith({
+      where: { userId: safeUser.id, revoked: false },
+      data: { revoked: true },
+    });
   });
 
   it('không chấp nhận access token tại endpoint refresh', async () => {

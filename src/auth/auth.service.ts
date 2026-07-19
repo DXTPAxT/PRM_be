@@ -14,9 +14,11 @@ import type { StringValue } from 'ms';
 import { OtpPurpose, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SAFE_USER_SELECT, SafeUser } from '../users/user.types';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { AccessTokenPayload, RefreshTokenPayload } from './types/jwt-payload';
 import * as bcrypt from 'bcryptjs';
@@ -225,6 +227,97 @@ export class AuthService {
     );
   }
 
+  /**
+   * Gửi OTP khôi phục mật khẩu.
+   *
+   * Hàm luôn hoàn thành im lặng khi không tìm thấy tài khoản để controller có
+   * thể trả cùng một thông báo cho mọi email/số điện thoại.
+   */
+  async forgotPassword(dto: ForgotPasswordDto): Promise<void> {
+    const identifier = this.normalizeIdentifier(dto.identifier);
+    const user = await this.findUserByIdentifier(identifier);
+
+    if (!user || !user.isActive) return;
+
+    await this.createOtpChallenge(
+      user.id,
+      identifier,
+      OtpPurpose.password_reset,
+    );
+  }
+
+  /**
+   * Xác thực OTP reset, đổi password và thu hồi mọi refresh session cũ.
+   */
+  async resetPassword(dto: ResetPasswordDto): Promise<void> {
+    const identifier = this.normalizeIdentifier(dto.identifier);
+    const user = await this.findUserByIdentifier(identifier);
+    const invalidMessage = 'OTP hoặc thông tin khôi phục không hợp lệ';
+
+    if (!user || !user.isActive) {
+      throw new BadRequestException(invalidMessage);
+    }
+
+    const challenge = await this.prisma.otpChallenge.findFirst({
+      where: {
+        userId: user.id,
+        purpose: OtpPurpose.password_reset,
+        consumedAt: null,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!challenge || challenge.expiresAt <= new Date()) {
+      throw new BadRequestException('OTP đã hết hạn hoặc không hợp lệ');
+    }
+    if (challenge.attempts >= challenge.maxAttempts) {
+      throw new OtpRateLimitException(
+        'Bạn đã nhập sai OTP quá số lần cho phép. Vui lòng yêu cầu OTP mới',
+      );
+    }
+
+    const isValid = await bcrypt.compare(dto.otp, challenge.codeHash);
+    if (!isValid) {
+      const attempts = challenge.attempts + 1;
+      await this.prisma.otpChallenge.update({
+        where: { id: challenge.id },
+        data: { attempts },
+      });
+      if (attempts >= challenge.maxAttempts) {
+        throw new OtpRateLimitException(
+          'Bạn đã nhập sai OTP quá số lần cho phép. Vui lòng yêu cầu OTP mới',
+        );
+      }
+      throw new BadRequestException(
+        `OTP không chính xác. Bạn còn ${challenge.maxAttempts - attempts} lần thử`,
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 12);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
+      select: SAFE_USER_SELECT,
+    });
+    await this.prisma.otpChallenge.update({
+      where: { id: challenge.id },
+      data: { consumedAt: new Date() },
+    });
+    await this.prisma.otpChallenge.updateMany({
+      where: {
+        userId: user.id,
+        purpose: OtpPurpose.password_reset,
+        consumedAt: null,
+      },
+      data: { consumedAt: new Date() },
+    });
+    await this.revokeAllSessions(user.id);
+  }
+
   private normalizeIdentifier(identifier: string): string {
     const normalized = identifier.trim();
     return normalized.includes('@') ? normalized.toLowerCase() : normalized;
@@ -240,6 +333,7 @@ export class AuthService {
   private async createOtpChallenge(
     userId: string,
     identifier: string,
+    purpose: OtpPurpose = OtpPurpose.registration,
   ): Promise<OtpChallengeResponse> {
     const code = this.generateOtp();
     const now = new Date();
@@ -248,7 +342,7 @@ export class AuthService {
       data: {
         userId,
         identifier,
-        purpose: OtpPurpose.registration,
+        purpose,
         codeHash: await bcrypt.hash(code, 10),
         expiresAt,
         maxAttempts: OTP_MAX_ATTEMPTS,

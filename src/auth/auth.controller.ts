@@ -1,18 +1,13 @@
-import {
-  Body,
-  Controller,
-  HttpCode,
-  HttpStatus,
-  NotImplementedException,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { Public } from '../common/decorators/public.decorator';
 
@@ -106,16 +101,35 @@ export class AuthController {
   }
 
   // ── POST /api/auth/forgot-password ──────────────────────────────────────
-  // TODO: [ForgotPw] M1 implement — gửi OTP reset mật khẩu + revokeAllSessions
-
   @Post('forgot-password')
   @Public()
-  @HttpCode(HttpStatus.NOT_IMPLEMENTED)
-  @ApiOperation({ summary: '[TODO] Quên mật khẩu — chưa implement, M1 sẽ làm' })
-  @ApiResponse({ status: 501, description: 'Chưa implement' })
-  forgotPassword() {
-    throw new NotImplementedException(
-      'Forgot-password chưa implement. M1 dùng authService.revokeAllSessions() khi reset xong.',
-    );
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @ApiOperation({ summary: 'Gửi OTP khôi phục mật khẩu' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Luôn trả cùng một thông báo để không tiết lộ email/số điện thoại có tồn tại',
+  })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.authService.forgotPassword(dto);
+    return {
+      data: null,
+      message:
+        'Nếu thông tin tồn tại, mã OTP khôi phục sẽ được gửi qua email hoặc SMS.',
+    };
+  }
+
+  // ── POST /api/auth/reset-password ───────────────────────────────────────
+  @Post('reset-password')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: 'Xác thực OTP và đặt mật khẩu mới' })
+  @ApiResponse({ status: 200, description: 'Đặt lại mật khẩu thành công' })
+  @ApiResponse({ status: 400, description: 'OTP không hợp lệ hoặc đã hết hạn' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.authService.resetPassword(dto);
+    return { data: null, message: 'Đặt lại mật khẩu thành công.' };
   }
 }

@@ -78,6 +78,7 @@ model User {
 
 enum OtpPurpose {
   registration
+  password_reset
 }
 
 model OtpChallenge {
