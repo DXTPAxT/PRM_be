@@ -60,6 +60,8 @@ model User {
   passwordHash String
   role         Role     @default(customer)
   isActive     Boolean  @default(true)
+  failedLoginAttempts Int      @default(0)
+  lockedUntil         DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -69,8 +71,34 @@ model User {
   cart          Cart?
   wishlist      WishlistItem[]
   refreshTokens RefreshToken[]
+  otpChallenges OtpChallenge[]
 
   @@map("users")
+}
+
+enum OtpPurpose {
+  registration
+  password_reset
+}
+
+model OtpChallenge {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identifier   String
+  purpose      OtpPurpose @default(registration)
+  codeHash     String
+  expiresAt    DateTime
+  attempts     Int       @default(0)
+  maxAttempts  Int       @default(5)
+  resendCount  Int       @default(0)
+  lastSentAt   DateTime  @default(now())
+  consumedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([userId, purpose])
+  @@index([identifier, purpose])
+  @@map("otp_challenges")
 }
 
 // ---------- REFRESH TOKENS (Auth session management) ----------

@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import * as Joi from 'joi';
 
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { AddressesModule } from './addresses/addresses.module';
 import { ProductsModule } from './products/products.module';
 import { CategoriesModule } from './categories/categories.module';
 import { ReviewsModule } from './reviews/reviews.module';
@@ -37,12 +38,22 @@ import { RolesGuard } from './common/guards/roles.guard';
         DATABASE_URL: Joi.string().required(),
         DIRECT_URL: Joi.string().required(),
         JWT_SECRET: Joi.string().min(32).required(),
-        JWT_EXPIRES_IN: Joi.string().default('15m'),
+        JWT_EXPIRES_IN: Joi.string()
+          .pattern(/^\d+[smhd]$/)
+          .default('15m'),
         JWT_REFRESH_SECRET: Joi.string().min(32).required(),
-        JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
+        JWT_REFRESH_EXPIRES_IN: Joi.string()
+          .pattern(/^\d+[smhd]$/)
+          .default('7d'),
         REDIS_URL: Joi.string().default('redis://localhost:6379'),
         THROTTLE_TTL: Joi.number().default(60000),
         THROTTLE_LIMIT: Joi.number().default(100),
+        MAIL_HOST: Joi.string().hostname().default('smtp.gmail.com'),
+        MAIL_PORT: Joi.number().port().default(465),
+        MAIL_SECURE: Joi.boolean().default(true),
+        MAIL_USER: Joi.string().email().allow('').optional(),
+        MAIL_APP_PASSWORD: Joi.string().allow('').optional(),
+        MAIL_FROM: Joi.string().allow('').optional(),
       }),
       validationOptions: { allowUnknown: true },
     }),
@@ -61,6 +72,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     // ── Feature Modules ───────────────────────────────────────────────────
     AuthModule,
     UsersModule,
+    AddressesModule,
     ProductsModule,
     CategoriesModule,
     ReviewsModule,
@@ -74,6 +86,9 @@ import { RolesGuard } from './common/guards/roles.guard';
     ReportsModule,
   ],
   providers: [
+    // Global rate limiting (để @Throttle() trên auth thực sự có hiệu lực)
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+
     // Global response envelope
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
 

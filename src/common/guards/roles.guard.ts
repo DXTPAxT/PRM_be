@@ -7,11 +7,11 @@ import {
 import { Reflector } from '@nestjs/core';
 import { Role } from '@prisma/client';
 import type { Request } from 'express';
-import type { User } from '@prisma/client';
+import type { SafeUser } from '../../users/user.types';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
 interface RequestWithUser extends Request {
-  user?: User;
+  user?: SafeUser;
 }
 
 /**

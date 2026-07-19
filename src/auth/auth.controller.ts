@@ -1,21 +1,17 @@
-import {
-  Body,
-  Controller,
-  HttpCode,
-  HttpStatus,
-  NotImplementedException,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResendOtpDto } from './dto/resend-otp.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { Public } from '../common/decorators/public.decorator';
 
 @ApiTags('auth')
-@Public() // Tất cả endpoint auth đều public
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -23,6 +19,7 @@ export class AuthController {
   // ── POST /api/auth/register ──────────────────────────────────────────────
 
   @Post('register')
+  @Public()
   @HttpCode(HttpStatus.CREATED)
   @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 lần / phút
   @ApiOperation({ summary: 'Đăng ký tài khoản mới (role=customer)' })
@@ -32,16 +29,24 @@ export class AuthController {
   })
   @ApiResponse({ status: 409, description: 'Email hoặc phone đã tồn tại' })
   async register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+    const result = await this.authService.register(dto);
+    return {
+      data: result.challenge,
+      message: 'Mã OTP đã được gửi. Vui lòng xác thực để kích hoạt tài khoản.',
+    };
   }
 
   // ── POST /api/auth/login ─────────────────────────────────────────────────
 
   @Post('login')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 10, ttl: 60000 } }) // 10 lần / phút
   @ApiOperation({ summary: 'Đăng nhập, nhận accessToken + refreshToken' })
-  @ApiResponse({ status: 200, description: 'Đăng nhập thành công' })
+  @ApiResponse({
+    status: 200,
+    description: 'Đăng nhập thành công, trả token và user an toàn',
+  })
   @ApiResponse({ status: 401, description: 'Sai thông tin đăng nhập' })
   async login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
@@ -50,6 +55,7 @@ export class AuthController {
   // ── POST /api/auth/refresh ───────────────────────────────────────────────
 
   @Post('refresh')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Làm mới access token bằng refresh token' })
   @ApiResponse({ status: 200, description: 'Cấp access token mới' })
@@ -61,36 +67,69 @@ export class AuthController {
   // ── POST /api/auth/logout ────────────────────────────────────────────────
 
   @Post('logout')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Đăng xuất, thu hồi refresh token hiện tại' })
   async logout(@Body() dto: RefreshTokenDto) {
     await this.authService.logout(dto.refreshToken);
-    return { message: 'Đăng xuất thành công' };
+    return { data: null, message: 'Đăng xuất thành công' };
   }
 
   // ── POST /api/auth/otp/verify ────────────────────────────────────────────
-  // TODO: [OTP] M1 implement — gửi OTP qua SMS, verify trước khi kích hoạt account
-
   @Post('otp/verify')
-  @HttpCode(HttpStatus.NOT_IMPLEMENTED)
-  @ApiOperation({ summary: '[TODO] Xác thực OTP — chưa implement, M1 sẽ làm' })
-  @ApiResponse({ status: 501, description: 'Chưa implement' })
-  otpVerify() {
-    throw new NotImplementedException(
-      'OTP verify chưa được implement. M1 sẽ làm sau khi tích hợp SMS provider.',
-    );
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: 'Xác thực OTP đăng ký và tự động đăng nhập' })
+  @ApiResponse({ status: 200, description: 'Kích hoạt tài khoản và trả token' })
+  async otpVerify(@Body() dto: VerifyOtpDto) {
+    return this.authService.verifyRegistrationOtp(dto);
+  }
+
+  @Post('otp/resend')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @ApiOperation({ summary: 'Gửi lại OTP đăng ký' })
+  @ApiResponse({ status: 200, description: 'OTP mới đã được gửi' })
+  async otpResend(@Body() dto: ResendOtpDto) {
+    const challenge = await this.authService.resendRegistrationOtp(dto);
+    return {
+      data: challenge,
+      message: 'OTP mới đã được gửi.',
+    };
   }
 
   // ── POST /api/auth/forgot-password ──────────────────────────────────────
-  // TODO: [ForgotPw] M1 implement — gửi OTP reset mật khẩu + revokeAllSessions
-
   @Post('forgot-password')
-  @HttpCode(HttpStatus.NOT_IMPLEMENTED)
-  @ApiOperation({ summary: '[TODO] Quên mật khẩu — chưa implement, M1 sẽ làm' })
-  @ApiResponse({ status: 501, description: 'Chưa implement' })
-  forgotPassword() {
-    throw new NotImplementedException(
-      'Forgot-password chưa implement. M1 dùng authService.revokeAllSessions() khi reset xong.',
-    );
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @ApiOperation({ summary: 'Gửi OTP khôi phục mật khẩu' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Luôn trả cùng một thông báo để không tiết lộ email/số điện thoại có tồn tại',
+  })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.authService.forgotPassword(dto);
+    return {
+      data: null,
+      message:
+        'Nếu thông tin tồn tại, mã OTP khôi phục sẽ được gửi qua email đã liên kết.',
+    };
+  }
+
+  // ── POST /api/auth/reset-password ───────────────────────────────────────
+  @Post('reset-password')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: 'Xác thực OTP và đặt mật khẩu mới' })
+  @ApiResponse({ status: 200, description: 'Đặt lại mật khẩu thành công' })
+  @ApiResponse({ status: 400, description: 'OTP không hợp lệ hoặc đã hết hạn' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.authService.resetPassword(dto);
+    return { data: null, message: 'Đặt lại mật khẩu thành công.' };
   }
 }
