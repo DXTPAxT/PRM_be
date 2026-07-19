@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../common/decorators/public.decorator';
 import { QueryProductsDto } from './dto/query-products.dto';
@@ -17,4 +17,12 @@ export class ProductsController {
   findAll(@Query() query: QueryProductsDto) {
     return this.productsService.findAll(query);
   }
+
+  @Public()
+  @Get(':id')
+  @ApiOperation({ summary: 'Chi tiết sản phẩm kèm biến thể và ảnh' })
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return this.productsService.findOne(id);
+  }
 }
+

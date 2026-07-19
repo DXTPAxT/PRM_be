@@ -1,8 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, ProductStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductSort, QueryProductsDto } from './dto/query-products.dto';
-import { PRODUCT_LIST_SELECT, toProductListItem } from './product.mapper';
+import {
+  PRODUCT_DETAIL_SELECT,
+  PRODUCT_LIST_SELECT,
+  toProductDetail,
+  toProductListItem,
+} from './product.mapper';
 
 const SORT_MAP: Record<ProductSort, Prisma.ProductOrderByWithRelationInput> = {
   [ProductSort.newest]: { createdAt: 'desc' },
@@ -97,4 +102,18 @@ export class ProductsService {
       message: 'Lấy danh sách sản phẩm thành công.',
     };
   }
+
+  async findOne(id: string) {
+    const row = await this.prisma.product.findUnique({
+      where: { id },
+      select: PRODUCT_DETAIL_SELECT,
+    });
+
+    if (!row) {
+      throw new NotFoundException('Không tìm thấy sản phẩm.');
+    }
+
+    return toProductDetail(row as never);
+  }
 }
+

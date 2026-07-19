@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductSort } from './dto/query-products.dto';
 import { ProductsService } from './products.service';
@@ -121,3 +122,56 @@ describe('ProductsService.findAll', () => {
     expect(result.data).toEqual([]);
   });
 });
+
+describe('ProductsService.findOne', () => {
+  const productFindUnique = jest.fn();
+  const prisma = {
+    product: { findUnique: productFindUnique },
+  } as unknown as PrismaService;
+
+  let service: ProductsService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new ProductsService(prisma);
+  });
+
+  it('trả chi tiết kèm variants và images', async () => {
+    productFindUnique.mockResolvedValue({
+      id: 'p1',
+      categoryId: 'c1',
+      category: { name: 'Áo thun' },
+      name: 'Áo thun basic',
+      description: 'Cotton',
+      basePrice: { toString: () => '250000' },
+      status: 'active',
+      createdAt: new Date('2026-01-01'),
+      images: [{ id: 'i1', url: 'https://x/1.jpg', sortOrder: 0 }],
+      reviews: [],
+      variants: [
+        {
+          id: 'v1',
+          productId: 'p1',
+          size: 'M',
+          color: 'Đen',
+          price: { toString: () => '260000' },
+          stockQty: 5,
+          sku: 'AT-M-DEN',
+        },
+      ],
+    });
+
+    const result = await service.findOne('p1');
+
+    expect(result.id).toBe('p1');
+    expect(result.variants[0].price).toBe(260000);
+    expect(result.basePrice).toBe(250000);
+  });
+
+  it('không tìm thấy thì ném NotFoundException', async () => {
+    productFindUnique.mockResolvedValue(null);
+
+    await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
+  });
+});
+
