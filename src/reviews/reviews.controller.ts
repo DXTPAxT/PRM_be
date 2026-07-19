@@ -9,7 +9,12 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { SafeUser } from '../users/user.types';
 import { CreateReviewDto } from './dto/create-review.dto';
@@ -44,7 +49,10 @@ export class ReviewsController {
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Xóa đánh giá của chính mình' })
-  remove(@CurrentUser() user: SafeUser, @Param('id', ParseUUIDPipe) id: string) {
+  remove(
+    @CurrentUser() user: SafeUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.reviewsService.remove(user.id, id);
   }
 }

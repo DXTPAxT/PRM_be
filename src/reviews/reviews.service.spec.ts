@@ -74,6 +74,14 @@ describe('ReviewsService', () => {
     });
   });
 
+  it('lấy đánh giá của sản phẩm không tồn tại thì ném NotFoundException', async () => {
+    productFindUnique.mockResolvedValue(null);
+
+    await expect(service.findByProduct('missing')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
   it('tạo review khi chưa từng đánh giá', async () => {
     await service.create('u1', {
       productId: 'p1',
@@ -135,8 +143,8 @@ describe('ReviewsService', () => {
   it('sửa review không tồn tại thì ném NotFoundException', async () => {
     reviewFindUnique.mockResolvedValue(null);
 
-    await expect(service.update('u1', 'missing', { rating: 3 })).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(
+      service.update('u1', 'missing', { rating: 3 }),
+    ).rejects.toThrow(NotFoundException);
   });
 });

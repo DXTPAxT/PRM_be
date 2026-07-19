@@ -78,13 +78,17 @@ export class ReviewsService {
     }
 
     if (review.userId !== userId) {
-      throw new ForbiddenException('Bạn không thể sửa đánh giá của người khác.');
+      throw new ForbiddenException(
+        'Bạn không thể sửa đánh giá của người khác.',
+      );
     }
 
     return review;
   }
 
   async findByProduct(productId: string, page = 1, limit = 10) {
+    await this.ensureProductExists(productId);
+
     const [rows, total] = await Promise.all([
       this.prisma.review.findMany({
         where: { productId },
@@ -123,7 +127,7 @@ export class ReviewsService {
       });
 
       return {
-        data: toReviewItem(row as ReviewRow),
+        data: toReviewItem(row),
         message: 'Gửi đánh giá thành công.',
       };
     } catch (error) {
@@ -152,7 +156,7 @@ export class ReviewsService {
     });
 
     return {
-      data: toReviewItem(row as ReviewRow),
+      data: toReviewItem(row),
       message: 'Cập nhật đánh giá thành công.',
     };
   }
