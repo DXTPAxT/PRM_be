@@ -140,6 +140,7 @@ describe('AuthService', () => {
       createdRefreshTokenArgs = args;
       return Promise.resolve();
     });
+    userUpdate.mockResolvedValue(safeUser);
     service = new AuthService(prisma, jwtService, configService);
   });
 
@@ -190,7 +191,12 @@ describe('AuthService', () => {
 
   it('trả token cùng safe user khi login và lưu refresh token dạng hash', async () => {
     const passwordHash = await bcrypt.hash('Password123!', 4);
-    userFindFirst.mockResolvedValue({ ...safeUser, passwordHash });
+    userFindFirst.mockResolvedValue({
+      ...safeUser,
+      passwordHash,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+    });
 
     const result = await service.login({
       identifier: ' USER@EXAMPLE.COM ',
@@ -207,7 +213,17 @@ describe('AuthService', () => {
       where: {
         OR: [{ email: 'user@example.com' }, { phone: 'user@example.com' }],
       },
-      select: { ...SAFE_USER_SELECT, passwordHash: true },
+      select: {
+        ...SAFE_USER_SELECT,
+        passwordHash: true,
+        failedLoginAttempts: true,
+        lockedUntil: true,
+      },
+    });
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: safeUser.id },
+      data: { failedLoginAttempts: 0, lockedUntil: null },
+      select: SAFE_USER_SELECT,
     });
 
     const [accessPayload, refreshPayload] = signedPayloads;
@@ -221,6 +237,62 @@ describe('AuthService', () => {
     await expect(bcrypt.compare('refresh-token', storedHash!)).resolves.toBe(
       true,
     );
+  });
+
+  it('increments failed login attempts', async () => {
+    const passwordHash = await bcrypt.hash('Password123!', 4);
+    userFindFirst.mockResolvedValue({
+      ...safeUser,
+      passwordHash,
+      failedLoginAttempts: 2,
+      lockedUntil: null,
+    });
+
+    await expect(
+      service.login({ identifier: safeUser.email!, password: 'wrong-pass' }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: safeUser.id },
+      data: { failedLoginAttempts: 3, lockedUntil: null },
+      select: SAFE_USER_SELECT,
+    });
+  });
+
+  it('locks an account for 15 minutes after five failures', async () => {
+    const passwordHash = await bcrypt.hash('Password123!', 4);
+    userFindFirst.mockResolvedValue({
+      ...safeUser,
+      passwordHash,
+      failedLoginAttempts: 4,
+      lockedUntil: null,
+    });
+
+    await expect(
+      service.login({ identifier: safeUser.email!, password: 'wrong-pass' }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: safeUser.id },
+      data: {
+        failedLoginAttempts: 5,
+        lockedUntil: expect.any(Date) as unknown,
+      },
+      select: SAFE_USER_SELECT,
+    });
+  });
+
+  it('rejects an account while it is temporarily locked', async () => {
+    const passwordHash = await bcrypt.hash('Password123!', 4);
+    userFindFirst.mockResolvedValue({
+      ...safeUser,
+      passwordHash,
+      failedLoginAttempts: 5,
+      lockedUntil: new Date(Date.now() + 60_000),
+    });
+
+    await expect(
+      service.login({ identifier: safeUser.email!, password: 'Password123!' }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(userUpdate).not.toHaveBeenCalled();
   });
 
   it('kích hoạt tài khoản và tự đăng nhập sau khi xác thực OTP đúng', async () => {

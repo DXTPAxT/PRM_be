@@ -60,6 +60,8 @@ model User {
   passwordHash String
   role         Role     @default(customer)
   isActive     Boolean  @default(true)
+  failedLoginAttempts Int      @default(0)
+  lockedUntil         DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

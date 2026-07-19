@@ -44,6 +44,8 @@ const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_MAX_RESENDS = 3;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+const LOGIN_MAX_FAILED_ATTEMPTS = 5;
+const LOGIN_LOCK_DURATION_MS = 15 * 60 * 1000;
 
 export interface OtpChallengeResponse {
   identifier: string;
@@ -330,29 +332,66 @@ export class AuthService {
       where: {
         OR: [{ email: identifier }, { phone: identifier }],
       },
-      select: { ...SAFE_USER_SELECT, passwordHash: true },
+      select: {
+        ...SAFE_USER_SELECT,
+        passwordHash: true,
+        failedLoginAttempts: true,
+        lockedUntil: true,
+      },
     });
 
-    if (!user)
+    if (!user) {
       throw new UnauthorizedException('Email/phone hoặc mật khẩu không đúng');
+    }
     if (!user.isActive) {
       throw new UnauthorizedException('Tài khoản chưa được xác thực OTP');
     }
 
-    const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!passwordMatch)
-      throw new UnauthorizedException('Email/phone hoặc mật khẩu không đúng');
+    const now = new Date();
+    if (user.lockedUntil && user.lockedUntil > now) {
+      const minutes = Math.ceil(
+        (user.lockedUntil.getTime() - now.getTime()) / 60000,
+      );
+      throw new UnauthorizedException(
+        `Tài khoản tạm bị khóa. Vui lòng thử lại sau khoảng ${minutes} phút`,
+      );
+    }
 
-    const safeUser: SafeUser = {
-      id: user.id,
-      fullName: user.fullName,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      isActive: user.isActive,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-    };
+    const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
+    if (!passwordMatch) {
+      const failedAttempts = user.failedLoginAttempts + 1;
+      const shouldLock = failedAttempts >= LOGIN_MAX_FAILED_ATTEMPTS;
+      const lockedUntil = shouldLock
+        ? new Date(now.getTime() + LOGIN_LOCK_DURATION_MS)
+        : null;
+
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          failedLoginAttempts: shouldLock
+            ? LOGIN_MAX_FAILED_ATTEMPTS
+            : failedAttempts,
+          lockedUntil,
+        },
+        select: SAFE_USER_SELECT,
+      });
+
+      if (shouldLock) {
+        throw new UnauthorizedException(
+          'Bạn đã nhập sai quá số lần cho phép. Tài khoản bị khóa tạm thời 15 phút',
+        );
+      }
+      throw new UnauthorizedException('Email/phone hoặc mật khẩu không đúng');
+    }
+
+    const safeUser: SafeUser = await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
+      select: SAFE_USER_SELECT,
+    });
     const tokens = await this.issueTokenPair(safeUser);
 
     return { ...tokens, user: safeUser };
