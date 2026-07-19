@@ -1,11 +1,13 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReviewDto } from './dto/create-review.dto';
+import { UpdateReviewDto } from './dto/update-review.dto';
 
 const REVIEW_SELECT = {
   id: true,
@@ -64,6 +66,24 @@ export class ReviewsService {
     }
   }
 
+  /** Trả về review nếu tồn tại VÀ thuộc về userId. */
+  private async ensureOwnedBy(userId: string, id: string) {
+    const review = await this.prisma.review.findUnique({
+      where: { id },
+      select: { id: true, userId: true },
+    });
+
+    if (!review) {
+      throw new NotFoundException('Không tìm thấy đánh giá.');
+    }
+
+    if (review.userId !== userId) {
+      throw new ForbiddenException('Bạn không thể sửa đánh giá của người khác.');
+    }
+
+    return review;
+  }
+
   async findByProduct(productId: string, page = 1, limit = 10) {
     const [rows, total] = await Promise.all([
       this.prisma.review.findMany({
@@ -115,5 +135,33 @@ export class ReviewsService {
       }
       throw error;
     }
+  }
+
+  async update(userId: string, id: string, dto: UpdateReviewDto) {
+    await this.ensureOwnedBy(userId, id);
+
+    const row = await this.prisma.review.update({
+      where: { id },
+      data: {
+        ...(dto.rating !== undefined ? { rating: dto.rating } : {}),
+        ...(dto.comment !== undefined
+          ? { comment: dto.comment.trim() || null }
+          : {}),
+      },
+      select: REVIEW_SELECT,
+    });
+
+    return {
+      data: toReviewItem(row as ReviewRow),
+      message: 'Cập nhật đánh giá thành công.',
+    };
+  }
+
+  async remove(userId: string, id: string) {
+    await this.ensureOwnedBy(userId, id);
+
+    await this.prisma.review.delete({ where: { id } });
+
+    return { data: null, message: 'Xóa đánh giá thành công.' };
   }
 }
