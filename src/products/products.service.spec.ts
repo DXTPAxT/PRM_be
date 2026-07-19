@@ -183,3 +183,81 @@ describe('ProductsService.findOne', () => {
     await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
   });
 });
+
+describe('ProductsService — admin CRUD', () => {
+  const productUpdate = jest.fn();
+  const productFindUnique = jest.fn();
+  const imageDeleteMany = jest.fn();
+  const imageCreateMany = jest.fn();
+  const variantUpsert = jest.fn();
+  const variantDeleteMany = jest.fn();
+
+  const tx = {
+    product: { update: productUpdate, findUnique: productFindUnique },
+    productImage: { deleteMany: imageDeleteMany, createMany: imageCreateMany },
+    productVariant: { upsert: variantUpsert, deleteMany: variantDeleteMany },
+  };
+
+  const prisma = {
+    product: { update: productUpdate, findUnique: productFindUnique },
+    $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
+      callback(tx),
+    ),
+  } as unknown as PrismaService;
+
+  let service: ProductsService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new ProductsService(prisma);
+    productFindUnique.mockResolvedValue({
+      id: 'p1',
+      categoryId: 'c1',
+      category: { name: 'Áo' },
+      name: 'Áo',
+      description: null,
+      basePrice: { toString: () => '250000' },
+      status: 'active',
+      createdAt: new Date('2026-01-01'),
+      images: [],
+      reviews: [],
+      variants: [],
+    });
+    productUpdate.mockResolvedValue({ id: 'p1' });
+  });
+
+  it('remove chỉ đổi status thành inactive, không xóa cứng', async () => {
+    await service.remove('p1');
+
+    expect(productUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'p1' },
+        data: { status: 'inactive' },
+      }),
+    );
+  });
+
+  it('update upsert variant và KHÔNG xóa variant cũ', async () => {
+    await service.update('p1', {
+      variants: [
+        { size: 'M', color: 'Đen', price: 260000, stockQty: 5, sku: 'A-M-D' },
+      ],
+    });
+
+    expect(variantUpsert).toHaveBeenCalledWith({
+      where: {
+        productId_size_color: { productId: 'p1', size: 'M', color: 'Đen' },
+      },
+      create: {
+        productId: 'p1',
+        size: 'M',
+        color: 'Đen',
+        price: 260000,
+        stockQty: 5,
+        sku: 'A-M-D',
+      },
+      update: { price: 260000, stockQty: 5, sku: 'A-M-D' },
+    });
+    expect(variantDeleteMany).not.toHaveBeenCalled();
+  });
+});
