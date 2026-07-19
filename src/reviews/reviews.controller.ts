@@ -1,17 +1,21 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Post } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import type { SafeUser } from '../users/user.types';
+import { CreateReviewDto } from './dto/create-review.dto';
 import { ReviewsService } from './reviews.service';
-import { Public } from '../common/decorators/public.decorator';
 
 @ApiTags('reviews')
+@ApiBearerAuth()
 @Controller('reviews')
 export class ReviewsController {
   constructor(private readonly reviewsService: ReviewsService) {}
 
-  /** Health probe — M2: điền logic review tại đây */
-  @Public()
-  @Get('ping')
-  ping() {
-    return { module: 'reviews', status: 'ok' };
+  @Post()
+  @ApiOperation({ summary: 'Gửi đánh giá cho một sản phẩm' })
+  @ApiResponse({ status: 201, description: 'Gửi đánh giá thành công' })
+  @ApiResponse({ status: 409, description: 'Đã đánh giá sản phẩm này rồi' })
+  create(@CurrentUser() user: SafeUser, @Body() dto: CreateReviewDto) {
+    return this.reviewsService.create(user.id, dto);
   }
 }
