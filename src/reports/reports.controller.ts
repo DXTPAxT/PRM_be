@@ -1,18 +1,28 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
 import { ReportsService } from './reports.service';
 import { Roles } from '../common/decorators/roles.decorator';
 
 @ApiTags('reports')
 @ApiBearerAuth()
-@Roles('admin')
+@Roles(Role.admin)
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
-  /** Health probe (admin only) — M4: điền logic báo cáo tại đây */
-  @Get('ping')
-  ping() {
-    return { module: 'reports', status: 'ok' };
+  @Get('sales')
+  @ApiOperation({ summary: '[Admin] Báo cáo doanh thu' })
+  salesReport(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.reportsService.salesReport(startDate, endDate);
+  }
+
+  @Get('inventory')
+  @ApiOperation({ summary: '[Admin] Báo cáo tồn kho' })
+  inventoryReport() {
+    return this.reportsService.inventoryReport();
   }
 }
