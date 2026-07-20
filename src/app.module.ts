@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import * as Joi from 'joi';
 
@@ -68,6 +69,7 @@ import { RolesGuard } from './common/guards/roles.guard';
 
     // ── Infrastructure ────────────────────────────────────────────────────
     PrismaModule,
+    ScheduleModule.forRoot(),
 
     // ── Feature Modules ───────────────────────────────────────────────────
     AuthModule,
