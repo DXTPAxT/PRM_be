@@ -14,6 +14,28 @@ import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+/**
+ * UUID cố định cho dữ liệu seed.
+ *
+ * Bắt buộc phải là UUID hợp lệ: các endpoint chi tiết dùng `ParseUUIDPipe`
+ * (vd `GET /products/:id`), nên id dạng slug ("prod-ao-thun-basic") sẽ bị
+ * chặn ở tầng validation với lỗi "Validation failed (uuid is expected)".
+ *
+ * Hardcode thay vì random để seed idempotent — chạy lại không tạo bản ghi trùng.
+ */
+const ID = {
+  catAo: '11111111-1111-4111-8111-000000000001',
+  catQuan: '11111111-1111-4111-8111-000000000002',
+  catAoThun: '11111111-1111-4111-8111-000000000003',
+  catAoSoMi: '11111111-1111-4111-8111-000000000004',
+  catQuanJeans: '11111111-1111-4111-8111-000000000005',
+  catQuanShort: '11111111-1111-4111-8111-000000000006',
+  prodAoThun: '22222222-2222-4222-8222-000000000001',
+  prodAoSoMi: '22222222-2222-4222-8222-000000000002',
+  prodQuanJeans: '22222222-2222-4222-8222-000000000003',
+  prodQuanShort: '22222222-2222-4222-8222-000000000004',
+} as const;
+
 async function main() {
   console.log('🌱 Seeding database...');
 
@@ -58,39 +80,39 @@ async function main() {
 
   // ── Categories ─────────────────────────────────────────────────────────
   const catAo = await prisma.category.upsert({
-    where: { id: 'cat-ao' },
+    where: { id: ID.catAo },
     update: { name: 'Áo' },
-    create: { id: 'cat-ao', name: 'Áo' },
+    create: { id: ID.catAo, name: 'Áo' },
   });
 
   const catQuan = await prisma.category.upsert({
-    where: { id: 'cat-quan' },
+    where: { id: ID.catQuan },
     update: { name: 'Quần' },
-    create: { id: 'cat-quan', name: 'Quần' },
+    create: { id: ID.catQuan, name: 'Quần' },
   });
 
   const catAoThun = await prisma.category.upsert({
-    where: { id: 'cat-ao-thun' },
+    where: { id: ID.catAoThun },
     update: { name: 'Áo Thun' },
-    create: { id: 'cat-ao-thun', name: 'Áo Thun', parentId: catAo.id },
+    create: { id: ID.catAoThun, name: 'Áo Thun', parentId: catAo.id },
   });
 
   const catAoSoMi = await prisma.category.upsert({
-    where: { id: 'cat-ao-so-mi' },
+    where: { id: ID.catAoSoMi },
     update: { name: 'Áo Sơ Mi' },
-    create: { id: 'cat-ao-so-mi', name: 'Áo Sơ Mi', parentId: catAo.id },
+    create: { id: ID.catAoSoMi, name: 'Áo Sơ Mi', parentId: catAo.id },
   });
 
   const catQuanJeans = await prisma.category.upsert({
-    where: { id: 'cat-quan-jeans' },
+    where: { id: ID.catQuanJeans },
     update: { name: 'Quần Jeans' },
-    create: { id: 'cat-quan-jeans', name: 'Quần Jeans', parentId: catQuan.id },
+    create: { id: ID.catQuanJeans, name: 'Quần Jeans', parentId: catQuan.id },
   });
 
   const catQuanShort = await prisma.category.upsert({
-    where: { id: 'cat-quan-short' },
+    where: { id: ID.catQuanShort },
     update: { name: 'Quần Short' },
-    create: { id: 'cat-quan-short', name: 'Quần Short', parentId: catQuan.id },
+    create: { id: ID.catQuanShort, name: 'Quần Short', parentId: catQuan.id },
   });
 
   console.log(`✅ Categories: Áo, Quần và 4 danh mục con`);
@@ -140,7 +162,7 @@ async function main() {
   }
 
   await seedProduct({
-    id: 'prod-ao-thun-basic',
+    id: ID.prodAoThun,
     name: 'Áo Thun Basic Unisex',
     description: 'Áo thun cotton 100%, form regular fit, phù hợp mọi dịp',
     basePrice: 199000,
@@ -157,7 +179,7 @@ async function main() {
   });
 
   await seedProduct({
-    id: 'prod-ao-so-mi-oxford',
+    id: ID.prodAoSoMi,
     name: 'Áo Sơ Mi Oxford Slim Fit',
     description: 'Vải Oxford cao cấp, form slim fit, phù hợp đi làm và dạo phố',
     basePrice: 450000,
@@ -174,7 +196,7 @@ async function main() {
   });
 
   await seedProduct({
-    id: 'prod-quan-jeans-slim',
+    id: ID.prodQuanJeans,
     name: 'Quần Jeans Slim Fit Nam',
     description: 'Denim co giãn 4 chiều, form slim fit tôn dáng',
     basePrice: 650000,
@@ -191,7 +213,7 @@ async function main() {
   });
 
   await seedProduct({
-    id: 'prod-quan-short-kaki',
+    id: ID.prodQuanShort,
     name: 'Quần Short Kaki Nam',
     description: 'Chất liệu kaki cao cấp, mềm mại, thoáng mát mùa hè',
     basePrice: 350000,
