@@ -72,6 +72,7 @@ model User {
   wishlist      WishlistItem[]
   refreshTokens RefreshToken[]
   otpChallenges OtpChallenge[]
+  notifications Notification[]
 
   @@map("users")
 }
@@ -313,4 +314,19 @@ model Review {
   @@unique([userId, productId]) // 1 user review 1 product 1 lần
   @@index([productId])
   @@map("reviews")
+}
+
+// ---------- NOTIFICATION ----------
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  data      Json?    // payload tuỳ ý, vd: { "orderId": "xxx" }
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@map("notifications")
 }
