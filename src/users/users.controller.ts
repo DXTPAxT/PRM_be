@@ -57,9 +57,10 @@ export class UsersController {
   @ApiOperation({ summary: 'Đổi mật khẩu, yêu cầu mật khẩu hiện tại' })
   @ApiResponse({ status: 200, description: 'Đổi mật khẩu thành công' })
   @ApiResponse({
-    status: 401,
+    status: 400,
     description: 'Mật khẩu hiện tại không chính xác',
   })
+  @ApiResponse({ status: 401, description: 'Chưa xác thực' })
   async changePassword(
     @CurrentUser() user: SafeUser,
     @Body() dto: ChangePasswordDto,
