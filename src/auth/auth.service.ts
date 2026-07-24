@@ -87,33 +87,70 @@ export class AuthService {
       throw new BadRequestException('Phải cung cấp email hoặc số điện thoại');
     }
 
-    // Kiểm tra trùng email/phone
-    if (email) {
-      const exists = await this.prisma.user.findUnique({
-        where: { email },
-      });
-      if (exists) throw new ConflictException('Email đã được sử dụng');
+    // Chỉ tài khoản đã xác thực mới giữ email/số điện thoại. Bản ghi chưa
+    // xác thực được tái sử dụng vì hai trường này vẫn là unique trong database.
+    const emailOwner = email
+      ? await this.prisma.user.findUnique({
+          where: { email },
+          select: { id: true, isActive: true },
+        })
+      : null;
+    if (emailOwner?.isActive) {
+      throw new ConflictException('Email đã được sử dụng');
     }
-    if (phone) {
-      const exists = await this.prisma.user.findUnique({
-        where: { phone },
-      });
-      if (exists) throw new ConflictException('Số điện thoại đã được sử dụng');
+
+    const phoneOwner = phone
+      ? await this.prisma.user.findUnique({
+          where: { phone },
+          select: { id: true, isActive: true },
+        })
+      : null;
+    if (phoneOwner?.isActive) {
+      throw new ConflictException('Số điện thoại đã được sử dụng');
+    }
+
+    if (emailOwner && phoneOwner && emailOwner.id !== phoneOwner.id) {
+      throw new ConflictException(
+        'Email và số điện thoại thuộc hai đăng ký chưa xác thực khác nhau',
+      );
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
-    const user = await this.prisma.user.create({
-      data: {
-        fullName: dto.fullName.trim(),
-        email,
-        phone,
-        passwordHash,
-        role: Role.customer,
-        isActive: false,
-      },
-      select: SAFE_USER_SELECT,
-    });
+    const pendingUser = emailOwner ?? phoneOwner;
+    const registrationData = {
+      fullName: dto.fullName.trim(),
+      email,
+      phone,
+      passwordHash,
+      role: Role.customer,
+      isActive: false,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+    };
+
+    const user = pendingUser
+      ? await this.prisma.user.update({
+          where: { id: pendingUser.id },
+          data: registrationData,
+          select: SAFE_USER_SELECT,
+        })
+      : await this.prisma.user.create({
+          data: registrationData,
+          select: SAFE_USER_SELECT,
+        });
+
+    if (pendingUser) {
+      // OTP của lần đăng ký trước không còn hợp lệ sau khi đổi thông tin.
+      await this.prisma.otpChallenge.updateMany({
+        where: {
+          userId: user.id,
+          purpose: OtpPurpose.registration,
+          consumedAt: null,
+        },
+        data: { consumedAt: new Date() },
+      });
+    }
 
     const identifier = email ?? phone!;
     const challenge = await this.createOtpChallenge(user.id, identifier);

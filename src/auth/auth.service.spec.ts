@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   HttpException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -148,6 +149,7 @@ describe('AuthService', () => {
       createdRefreshTokenArgs = args;
       return Promise.resolve();
     });
+    userFindUnique.mockResolvedValue(null);
     userUpdate.mockResolvedValue(safeUser);
     mailSendOtp.mockResolvedValue(undefined);
     service = new AuthService(prisma, jwtService, configService, mailService);
@@ -202,6 +204,69 @@ describe('AuthService', () => {
         password: 'Password123!',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('cho phép đăng ký lại email chưa xác thực và phát hành OTP mới', async () => {
+    const pendingUser: SafeUser = { ...safeUser, isActive: false };
+    userFindUnique
+      .mockResolvedValueOnce(pendingUser)
+      .mockResolvedValueOnce(null);
+    userUpdate.mockResolvedValue({
+      ...pendingUser,
+      fullName: 'Tên mới',
+      phone: '0987654321',
+    });
+
+    const result = await service.register({
+      fullName: '  Tên mới  ',
+      email: '  USER@EXAMPLE.COM ',
+      phone: ' 0987654321 ',
+      password: 'NewPassword123!',
+    });
+
+    expect(userCreate).not.toHaveBeenCalled();
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: pendingUser.id },
+      data: expect.objectContaining({
+        fullName: 'Tên mới',
+        email: 'user@example.com',
+        phone: '0987654321',
+        isActive: false,
+      }),
+      select: SAFE_USER_SELECT,
+    });
+    expect(otpChallengeUpdateMany).toHaveBeenCalledWith({
+      where: {
+        userId: pendingUser.id,
+        purpose: OtpPurpose.registration,
+        consumedAt: null,
+      },
+      data: { consumedAt: expect.any(Date) },
+    });
+    expect(otpChallengeCreate).toHaveBeenCalled();
+    expect(mailSendOtp).toHaveBeenCalledWith(
+      'user@example.com',
+      expect.stringMatching(/^\d{6}$/),
+      OtpPurpose.registration,
+    );
+    expect(result.user.isActive).toBe(false);
+  });
+
+  it('vẫn từ chối đăng ký khi email đã được xác thực', async () => {
+    userFindUnique.mockResolvedValueOnce(safeUser);
+
+    await expect(
+      service.register({
+        fullName: 'Nguyễn Văn A',
+        email: 'user@example.com',
+        phone: '0901234567',
+        password: 'Password123!',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(userCreate).not.toHaveBeenCalled();
+    expect(userUpdate).not.toHaveBeenCalled();
+    expect(otpChallengeCreate).not.toHaveBeenCalled();
   });
 
   it('trả token cùng safe user khi login và lưu refresh token dạng hash', async () => {

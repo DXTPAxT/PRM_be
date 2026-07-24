@@ -118,6 +118,22 @@ describe('UsersService', () => {
         currentPassword: 'wrong-password',
         newPassword: 'NewPassword123!',
       }),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: 'Mật khẩu hiện tại không chính xác',
+    });
+    expect(userUpdate).not.toHaveBeenCalled();
+    expect(refreshTokenUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('giữ lỗi 401 khi tài khoản xác thực không còn tồn tại', async () => {
+    userFindUnique.mockResolvedValue(null);
+
+    await expect(
+      service.changePassword('missing-user', {
+        currentPassword: 'Password123!',
+        newPassword: 'NewPassword123!',
+      }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
     expect(userUpdate).not.toHaveBeenCalled();
     expect(refreshTokenUpdateMany).not.toHaveBeenCalled();

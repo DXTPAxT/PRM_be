@@ -6,8 +6,12 @@ import {
   IsString,
   Length,
   Matches,
-  MinLength,
 } from 'class-validator';
+import {
+  IsValidPassword,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_POLICY_MESSAGE,
+} from '../../common/validators/password-policy.validator';
 
 export class RegisterDto {
   @ApiProperty({ example: 'Nguyễn Văn A', description: 'Họ và tên đầy đủ' })
@@ -45,9 +49,10 @@ export class RegisterDto {
 
   @ApiProperty({
     example: 'Password123!',
-    description: 'Mật khẩu tối thiểu 8 ký tự',
+    description: PASSWORD_POLICY_MESSAGE,
+    minLength: PASSWORD_MIN_LENGTH,
   })
   @IsString()
-  @MinLength(8, { message: 'Mật khẩu tối thiểu 8 ký tự' })
+  @IsValidPassword()
   password: string;
 }

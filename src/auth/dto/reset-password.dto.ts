@@ -1,6 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsNotEmpty, IsString, Matches, MinLength } from 'class-validator';
+import { IsNotEmpty, IsString, Matches } from 'class-validator';
+import {
+  IsValidPassword,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_POLICY_MESSAGE,
+} from '../../common/validators/password-policy.validator';
 
 export class ResetPasswordDto {
   @ApiProperty({
@@ -22,8 +27,12 @@ export class ResetPasswordDto {
   @Matches(/^\d{6}$/, { message: 'OTP phải gồm đúng 6 chữ số' })
   otp!: string;
 
-  @ApiProperty({ example: 'NewPassword123!' })
+  @ApiProperty({
+    example: 'NewPassword123!',
+    description: PASSWORD_POLICY_MESSAGE,
+    minLength: PASSWORD_MIN_LENGTH,
+  })
   @IsString()
-  @MinLength(8, { message: 'Mật khẩu tối thiểu 8 ký tự' })
+  @IsValidPassword()
   newPassword!: string;
 }

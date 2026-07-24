@@ -97,7 +97,7 @@ export class UsersService {
       user.passwordHash,
     );
     if (!currentPasswordMatches) {
-      throw new UnauthorizedException('Mật khẩu hiện tại không chính xác');
+      throw new BadRequestException('Mật khẩu hiện tại không chính xác');
     }
     if (dto.currentPassword === dto.newPassword) {
       throw new BadRequestException('Mật khẩu mới phải khác mật khẩu hiện tại');
