@@ -17,7 +17,7 @@ git clone <repo-url>
 cd BE
 npm install
 ```
-> 📌 **Giải thích**: Tải mã nguồn Backend về máy và cài đặt toàn bộ các thư viện/phụ thuộc khai báo trong `package.json` (NestJS framework, Prisma ORM, JWT, Bcrypt, Class Validator...).
+> 📌 Tải mã nguồn Backend về máy và cài đặt toàn bộ các thư viện/phụ thuộc khai báo trong `package.json` (NestJS framework, Prisma ORM, JWT, Bcrypt, Class Validator...).
 
 ### 2. Cấu hình môi trường
 
@@ -25,9 +25,7 @@ npm install
 cp .env.example .env
 # Mở .env và điền các giá trị (đặc biệt là JWT_SECRET và JWT_REFRESH_SECRET — min 32 chars)
 ```
-> 📌 **Giải thích**:
-> - Tạo file môi trường `.env` chứa các bí mật bảo mật và cấu hình kết nối ứng dụng.
-> - Dòng `DATABASE_URL` trong `.env` chỉ định chuỗi kết nối đến PostgreSQL (`postgresql://postgres:postgres@localhost:5432/clothing_store?schema=public`).
+> 📌 Tạo file môi trường `.env` chứa các bí mật bảo mật và cấu hình kết nối ứng dụng (`DATABASE_URL` chỉ định vị trí CSDL PostgreSQL).
 
 ### 3. Khởi động DB + Redis (Bằng Docker)
 
@@ -36,9 +34,7 @@ docker compose up -d
 # Postgres chạy tại localhost:5432
 # Redis chạy tại localhost:6379
 ```
-> 📌 **Giải thích**:
-> - Đọc file `docker-compose.yml` để khởi chạy 2 container ngầm: **PostgreSQL 16** (CSDL chính tại Cổng 5432) và **Redis** (Bộ nhớ đệm/Session tại Cổng 6379).
-> - Nhờ Docker, toàn bộ team không cần phải tự cài thủ công PostgreSQL hay Redis vào hệ điều hành.
+> 📌 Đọc file `docker-compose.yml` để khởi chạy 2 container ngầm: **PostgreSQL 16** (CSDL chính tại Cổng 5432) và **Redis** (Bộ nhớ đệm/Session tại Cổng 6379) mà không cần cài thủ công vào hệ điều hành.
 
 ### 4. Migrate database (Tạo bảng từ Schema)
 
@@ -46,17 +42,14 @@ docker compose up -d
 npx prisma migrate dev --name init
 # Prisma generate tự động chạy sau migrate
 ```
-> 📌 **Giải thích**:
-> - Prisma ORM sẽ đọc file định nghĩa `prisma/schema.prisma` (Single Source of Truth).
-> - Biên dịch thành mã SQL DDL và tạo trực tiếp toàn bộ 15 bảng, khóa chính (PK), khóa ngoại (FK), ràng buộc dữ liệu trong CSDL PostgreSQL.
-> - Tự động chạy `prisma generate` để sinh ra `PrismaClient` giúp code TypeScript truy vấn CSDL an toàn.
+> 📌 Prisma ORM sẽ đọc file định nghĩa `prisma/schema.prisma`, biên dịch thành mã SQL DDL và tạo trực tiếp toàn bộ 15 bảng, khóa chính, khóa ngoại trong CSDL PostgreSQL, đồng thời sinh ra `PrismaClient` để truy vấn CSDL an toàn.
 
 ### 5. Seed dữ liệu test (Nạp dữ liệu mẫu)
 
 ```bash
 npx prisma db seed
 ```
-> 📌 **Giải thích**: Chạy script `prisma/seed.ts` để nạp sẵn dữ liệu ban đầu vào CSDL (tài khoản Admin/Customer, danh mục quần áo, sản phẩm, biến thể size/màu, và mã giảm giá Voucher) phục vụ test ứng dụng.
+> 📌 Chạy script `prisma/seed.ts` để nạp sẵn dữ liệu ban đầu vào CSDL (tài khoản Admin/Customer, danh mục quần áo, sản phẩm, biến thể size/màu, và mã giảm giá Voucher) phục vụ test ứng dụng.
 
 Tài khoản được tạo sẵn:
 
@@ -71,9 +64,7 @@ Tài khoản được tạo sẵn:
 ```bash
 npm run start:dev
 ```
-> 📌 **Giải thích**:
-> - Khởi động Backend NestJS ở chế độ phát triển (watch mode). Server tự động biên dịch lại mỗi khi sửa code.
-> - Khi khởi chạy, `PrismaService` sẽ tự động mở kết nối (Connect) tới PostgreSQL và lắng nghe yêu cầu API từ ứng dụng Flutter FE.
+> 📌 Khởi động Backend NestJS ở chế độ phát triển (watch mode). Khi khởi chạy, `PrismaService` sẽ tự động mở kết nối tới PostgreSQL và lắng nghe yêu cầu API từ ứng dụng Flutter FE.
 
 - API Base URL: `http://localhost:3000/api`
 - Tài liệu API (Swagger UI): **`http://localhost:3000/api/docs`**
