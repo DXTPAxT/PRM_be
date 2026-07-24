@@ -31,10 +31,9 @@ export class VouchersController {
     return this.vouchersService.apply(dto);
   }
 
-  @Roles(Role.admin)
   @ApiBearerAuth()
   @Get()
-  @ApiOperation({ summary: '[Admin] Danh sách voucher' })
+  @ApiOperation({ summary: 'Danh sách voucher' })
   findAll() {
     return this.vouchersService.findAll();
   }

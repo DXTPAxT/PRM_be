@@ -139,8 +139,41 @@ export class OrdersService {
       });
     }
 
-    const discount = 0; // TODO: M4 — áp dụng logic giảm giá voucher thật
-    const total = subtotal - discount + shippingFee;
+    let discount = 0;
+    if (dto.voucherId) {
+      const voucher = await this.prisma.voucher.findUnique({
+        where: { id: dto.voucherId },
+        select: {
+          id: true,
+          isActive: true,
+          discount: true,
+          minOrder: true,
+          usageLimit: true,
+          usedCount: true,
+          expiresAt: true,
+        },
+      });
+      if (!voucher || !voucher.isActive) {
+        throw new BadRequestException('Voucher không hợp lệ hoặc đã bị vô hiệu hóa');
+      }
+      if (voucher.expiresAt && voucher.expiresAt < new Date()) {
+        throw new BadRequestException('Voucher đã hết hạn sử dụng');
+      }
+      if (
+        voucher.usageLimit !== null &&
+        voucher.usedCount >= voucher.usageLimit
+      ) {
+        throw new BadRequestException('Voucher đã hết lượt sử dụng');
+      }
+      if (subtotal < Number(voucher.minOrder)) {
+        throw new BadRequestException(
+          `Đơn hàng tối thiểu ${voucher.minOrder}đ để dùng voucher này`,
+        );
+      }
+      discount = Number(voucher.discount);
+    }
+
+    const total = Math.max(0, subtotal - discount + shippingFee);
 
     const order = await this.prisma.$transaction(async (tx) => {
       // Trừ tồn kho có điều kiện — updateMany trả count=0 nếu hết hàng giữa chừng (race condition).
@@ -154,6 +187,13 @@ export class OrdersService {
             'Một số sản phẩm vừa hết hàng, vui lòng thử lại',
           );
         }
+      }
+
+      if (dto.voucherId) {
+        await tx.voucher.update({
+          where: { id: dto.voucherId },
+          data: { usedCount: { increment: 1 } },
+        });
       }
 
       const created = await tx.order.create({
